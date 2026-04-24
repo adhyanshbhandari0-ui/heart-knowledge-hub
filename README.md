@@ -130,6 +130,7 @@ A curated list of awesome libraries, datasets, tutorials, papers, and other reso
 
 ### Quality Assessment
 - 2022-[Robustness of electrocardiogram signal quality indices](https://royalsocietypublishing.org/doi/10.1098/rsif.2022.0012)-16
+- 2023-[Simple, efficient, and generalized ECG signal quality assessment method for telemedicine applications](https://www.sciencedirect.com/science/article/pii/S2352914823002216)
 - 2023-[Learned Kernels for Interpretable and Efficient Medical Time Series Processing](https://arxiv.org/pdf/2307.05385.pdf) | [code](https://github.com/SullyChen/PPG-Learned-Kernels)
 
 
