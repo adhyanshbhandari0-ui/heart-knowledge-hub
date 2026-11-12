@@ -1,0 +1,38 @@
+# This workflow will install Python dependencies, run tests and lint with a variety of Python versions
+# For more information about https://help.github.com/actions/language-and-framework-guides/using-python-with-github-actions
+
+name: Formatting with pre-commit
+
+on:
+  push:
+    branches: [ dev, doc, master ]
+  pull_request:
+    branches: [ master ]
+
+jobs:
+  build:
+    # Don't run on forked repos.
+    if: github.repository_owner == 'DeepPSP'
+
+    runs-on: ubuntu-22.04
+    # pre-commit hooks don't behave differently across Python versions;
+    # a single recent version is enough (this used to be a 3-version matrix)
+    steps:
+    - uses: actions/checkout@v7
+    - name: Set up Python
+      uses: actions/setup-python@v7
+      with:
+        python-version: '3.12'
+    - name: List existing Python packages
+      run: |
+        python -m pip list
+    - name: Install dependencies
+      run: |
+        python -m pip install --upgrade pip setuptools wheel
+        python -m pip install -r requirements.txt
+        python -m pip install -e .[dev]
+    - name: List installed Python packages
+      run: |
+        python -m pip list
+    - name: Check code format with pre-commit
+      uses: pre-commit/action@v3.0.1

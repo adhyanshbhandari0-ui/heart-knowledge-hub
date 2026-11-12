@@ -1,0 +1,27 @@
+numpy
+scipy
+pandas >= 2.2.2
+pyarrow
+scikit-learn
+boto3
+wfdb
+biosppy
+torch
+torchsummary
+tensorboardX
+tqdm
+deprecated
+edfio
+deprecate-kwargs
+safetensors
+PyWavelets
+torch-optimizer
+requests
+xmltodict
+einops
+matplotlib
+bib-lookup
+typing-extensions
+soundfile
+easydict
+PeakUtils

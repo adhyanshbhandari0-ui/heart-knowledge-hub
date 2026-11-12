@@ -1,0 +1,757 @@
+""" """
+
+import itertools
+import shutil
+from pathlib import Path
+
+import numpy as np
+import pytest
+import torch
+from safetensors.torch import safe_open
+from tqdm.auto import tqdm
+
+from torch_ecg.cfg import CFG, DEFAULTS, FLOAT32
+from torch_ecg.models._nets import Conv_Bn_Activation
+from torch_ecg.utils.utils_nn import (
+    CkptMixin,
+    SizeMixin,
+    adjust_cnn_filter_lengths,
+    compute_deconv_output_shape,
+    compute_module_size,
+    compute_output_shape,
+    compute_receptive_field,
+    compute_sequential_output_shape,
+    default_collate_fn,
+    extend_predictions,
+    make_safe_globals,
+)
+
+
+class Model1D(torch.nn.Sequential, SizeMixin, CkptMixin):
+    def __init__(self, n_leads: int, config: CFG) -> None:
+        self.config = config
+        out_channels = self.config["out_channels"]
+        super().__init__(
+            Conv_Bn_Activation(n_leads, 32, 7, stride=2, padding=1, activation="mish"),
+            Conv_Bn_Activation(32, out_channels, 5, stride=1, dilation=4, activation="leaky"),
+        )
+
+
+class ModelDummy(torch.nn.Module, SizeMixin, CkptMixin):
+    def __init__(self, n_leads: int, config: CFG) -> None:
+        self.config = config
+        super().__init__()
+
+    def forward(self, x):
+        return x
+
+
+def test_extend_predictions():
+    n_records, n_classes = 10, 3
+    classes = ["NSR", "AF", "PVC"]
+    extended_classes = ["AF", "RBBB", "PVC", "NSR"]
+    perm = {idx: extended_classes.index(c) for idx, c in enumerate(classes)}
+
+    scalar_pred = torch.rand(n_records, n_classes)
+    extended_pred = extend_predictions(scalar_pred, classes, extended_classes)
+    assert np.allclose(extended_pred[:, [3, 0, 2]], scalar_pred.numpy())
+
+    bin_pred = torch.randint(0, 2, (n_records, n_classes))
+    extended_pred = extend_predictions(bin_pred, classes, extended_classes)
+    assert np.allclose(extended_pred[:, [3, 0, 2]], bin_pred.numpy())
+
+    cate_pred = torch.randint(0, n_classes, (n_records,))
+    extended_pred = extend_predictions(cate_pred, classes, extended_classes)
+    cate_pred = cate_pred.numpy()
+    for k, v in perm.items():
+        cate_pred[cate_pred == k] = v
+    assert np.allclose(extended_pred, cate_pred)
+
+    classes = ["NSR", "AF", "PVC"]
+    with pytest.raises(AssertionError, match="`extended_classes` is not a superset of `classes`,"):
+        extended_classes = ["LAnFB", "AF", "RBBB", "RAD", "NSR"]
+        scalar_pred = torch.rand(n_records, n_classes)
+        extend_predictions(scalar_pred, classes, extended_classes)
+    with pytest.raises(AssertionError, match="`pred` indicates 4 classes, while `classes` has 3"):
+        extended_classes = ["AF", "RBBB", "PVC", "NSR"]
+        scalar_pred = torch.rand(n_records, len(extended_classes))
+        extend_predictions(scalar_pred, classes, extended_classes)
+
+
+def test_compute_output_shape():
+    in_channels = 12
+    tensor_first = torch.rand(32, in_channels, 2000)
+    shape_first = tensor_first.shape
+    tensor_last = torch.rand(32, 2000, in_channels)
+    shape_last = tensor_last.shape
+
+    kw_grid = itertools.product(
+        [1, 3, [9], 12],  # kernel_size
+        [1, [2], 3, 8],  # stride
+        [[0], 1, 2, 3],  # padding
+        [1, 2, [5], 8],  # dilation
+    )
+    kw_grid = list(kw_grid)
+
+    # conv
+    num_filters = 32
+    for kernel_size, stride, padding, dilation in tqdm(kw_grid, mininterval=1, desc="conv"):
+        conv_kw = dict(
+            kernel_size=kernel_size,
+            stride=stride,
+            padding=padding,
+            dilation=dilation,
+        )
+        for tensor, channel_last in zip([tensor_first, tensor_last], [False, True]):
+            conv_output_shape = compute_output_shape(
+                "conv",
+                input_shape=tensor.shape,
+                num_filters=num_filters,
+                output_padding=0,
+                channel_last=channel_last,
+                **conv_kw,  # type: ignore
+            )
+            conv_output_tensor = torch.nn.Conv1d(in_channels, num_filters, **conv_kw)(tensor_first)  # type: ignore
+            if channel_last:
+                conv_output_tensor = conv_output_tensor.permute(0, 2, 1)
+
+            assert conv_output_shape == conv_output_tensor.shape
+
+    # deconv
+    for kernel_size, stride, padding, dilation in tqdm(kw_grid, mininterval=1, desc="deconv"):
+        deconv_kw = dict(
+            kernel_size=kernel_size,
+            stride=stride,
+            padding=padding,
+            dilation=dilation,
+        )
+        for tensor, channel_last in zip([tensor_first, tensor_last], [False, True]):
+            deconv_output_shape = compute_output_shape(
+                "deconv",
+                input_shape=tensor.shape,
+                num_filters=num_filters,
+                output_padding=0,
+                channel_last=channel_last,
+                **deconv_kw,  # type: ignore
+            )
+            deconv_output_tensor = torch.nn.ConvTranspose1d(in_channels, num_filters, **deconv_kw)(tensor_first)  # type: ignore
+            if channel_last:
+                deconv_output_tensor = deconv_output_tensor.permute(0, 2, 1)
+
+            assert deconv_output_shape == deconv_output_tensor.shape
+    compute_deconv_output_shape(
+        input_shape=tensor.shape, num_filters=num_filters, output_padding=0, channel_last=channel_last, **deconv_kw  # type: ignore
+    )
+
+    # maxpool
+    for kernel_size, stride, padding, dilation in tqdm(kw_grid, mininterval=1, desc="maxpool"):
+        _padding = padding if isinstance(padding, int) else padding[0]
+        _kernel_size = kernel_size if isinstance(kernel_size, int) else kernel_size[0]
+        if _padding > _kernel_size / 2:
+            continue
+        maxpool_kw = dict(
+            kernel_size=kernel_size,
+            stride=stride,
+            padding=padding,
+            dilation=dilation,
+        )
+        for tensor, channel_last in zip([tensor_first, tensor_last], [False, True]):
+            maxpool_output_shape = compute_output_shape(
+                "maxpool", input_shape=tensor.shape, num_filters=1, output_padding=0, channel_last=channel_last, **maxpool_kw  # type: ignore
+            )
+            maxpool_output_tensor = torch.nn.MaxPool1d(**maxpool_kw)(tensor_first)  # type: ignore
+            if channel_last:
+                maxpool_output_tensor = maxpool_output_tensor.permute(0, 2, 1)
+
+            assert maxpool_output_shape == maxpool_output_tensor.shape
+
+    # avgpool
+    for kernel_size, stride, padding, _ in tqdm(kw_grid, mininterval=1, desc="avgpool"):
+        _padding = padding if isinstance(padding, int) else padding[0]
+        _kernel_size = kernel_size if isinstance(kernel_size, int) else kernel_size[0]
+        if _padding > _kernel_size / 2:
+            continue
+        avgpool_kw = dict(
+            kernel_size=kernel_size,
+            stride=stride,
+            padding=padding,
+        )
+        for tensor, channel_last in zip([tensor_first, tensor_last], [False, True]):
+            avgpool_output_shape = compute_output_shape(
+                "avgpool", input_shape=tensor.shape, num_filters=1, output_padding=0, channel_last=channel_last, **avgpool_kw  # type: ignore
+            )
+            avgpool_output_tensor = torch.nn.AvgPool1d(**avgpool_kw)(tensor_first)  # type: ignore
+            if channel_last:
+                avgpool_output_tensor = avgpool_output_tensor.permute(0, 2, 1)
+
+            assert avgpool_output_shape == avgpool_output_tensor.shape
+
+    shape_1 = compute_output_shape("conv", [None, None, 224, 224], padding=[4, 8])
+    shape_2 = compute_output_shape("conv", [None, None, 224, 224], padding=[4, 8], asymmetric_padding=[1, 3])
+    assert shape_2[2:] == (shape_1[2] + 1 + 3, shape_1[3] + 1 + 3)  # type: ignore
+    shape_1 = compute_output_shape("conv", [None, None, 224, 224], padding=[4, 8])
+    shape_2 = compute_output_shape(
+        "conv",
+        [None, None, 224, 224],
+        padding=[4, 8],
+        asymmetric_padding=[[1, 3], [0, 2]],
+    )
+    assert shape_2[2:] == (shape_1[2] + 1 + 3, shape_1[3] + 0 + 2)  # type: ignore
+
+    shape_1 = compute_output_shape(
+        "conv",
+        [None, None, None, None],
+        padding=[4, 8],
+        num_filters=32,
+        channel_last=True,
+    )
+    assert shape_1 == (None, None, None, 32)
+
+    with pytest.raises(AssertionError, match="Unknown layer type `pool`, should be one of"):
+        compute_output_shape("pool", tensor_first.shape)
+    with pytest.raises(AssertionError, match="`input_shape` should be a sequence of length at least 3"):
+        compute_output_shape("conv", tensor_first.shape[:2])
+    with pytest.raises(
+        AssertionError,
+        match="`input_shape` should be a sequence containing only `None` and positive integers",
+    ):
+        compute_output_shape("conv", [None, None, -1])
+    with pytest.raises(AssertionError, match="`num_filters` should be `None` or positive integer"):
+        compute_output_shape("conv", tensor_first.shape, num_filters=-12)
+    with pytest.raises(AssertionError, match="`kernel_size` should contain only positive integers"):
+        compute_output_shape("conv", tensor_first.shape, kernel_size=2.5)  # type: ignore
+    with pytest.raises(AssertionError, match="`kernel_size` should contain only positive integers"):
+        compute_output_shape("conv", tensor_first.shape, kernel_size=0)
+    with pytest.raises(AssertionError, match="`stride` should contain only positive integers"):
+        compute_output_shape("conv", tensor_first.shape, stride=0)
+    with pytest.raises(AssertionError, match="`padding` should contain only non-negative integers"):
+        compute_output_shape("conv", tensor_first.shape, padding=-3)
+    with pytest.raises(
+        AssertionError,
+        match="`output_padding` should contain only non-negative integers",
+    ):
+        compute_output_shape("deconv", tensor_first.shape, output_padding=-3)
+    with pytest.raises(ValueError, match="out channel dimension and spatial dimensions are all `None`"):
+        compute_output_shape("conv", [None, 12, None], num_filters=None)
+    with pytest.raises(ValueError, match="out channel dimension and spatial dimensions are all `None`"):
+        compute_output_shape("conv", [None, None, 12], num_filters=None, channel_last=True)
+    with pytest.raises(ValueError, match="spatial dimensions should be all `None`, or all not `None`"):
+        compute_output_shape("conv", [None, 12, None, 224])  # spatial 2D (total 4D)
+    with pytest.raises(ValueError, match="spatial dimensions should be all `None`, or all not `None`"):
+        compute_output_shape("conv", [None, None, 224, 12], channel_last=True)  # spatial 2D (total 4D)
+    with pytest.raises(ValueError, match="input has 1 dimensions, while kernel has 2 dimensions,"):
+        compute_output_shape("conv", tensor_first.shape, kernel_size=[3, 5])
+    with pytest.raises(
+        ValueError,
+        match="input has 1 dimensions, while `output_padding` has 2 dimensions,",
+    ):
+        compute_output_shape("deconv", tensor_first.shape, output_padding=[1, 2])
+    with pytest.raises(ValueError, match="input has 1 dimensions, while `dilation` has 2 dimensions,"):
+        compute_output_shape("conv", tensor_first.shape, dilation=[4, 8])
+    with pytest.raises(ValueError, match="input has 1 dimensions, while `padding` has 2 dimensions,"):
+        compute_output_shape("conv", tensor_first.shape, padding=[1, 1])
+    with pytest.raises(AssertionError, match="Invalid `asymmetric_padding`"):
+        compute_output_shape("conv", tensor_first.shape, asymmetric_padding=2)  # type: ignore
+    with pytest.raises(AssertionError, match="Invalid `asymmetric_padding`"):
+        compute_output_shape(
+            "conv",
+            tensor_first.shape,
+            asymmetric_padding=[1, 2, 3],
+        )
+    with pytest.raises(AssertionError, match="Invalid `asymmetric_padding`"):
+        compute_output_shape("conv", [None, None, 224, 224], asymmetric_padding=[[1, 2]])
+    with pytest.raises(
+        AssertionError,
+        match="output shape `\\(2, None, 0\\)` is illegal, please check input arguments",
+    ):
+        compute_output_shape("conv", (2, 12, 400), kernel_size=5, dilation=100)
+
+
+def test_compute_sequential_output_shape():
+    seq_len, batch_size = 2000, 2
+    tensor_1d = torch.rand(batch_size, 12, seq_len)
+    out_channels = 128
+    model_1d = Model1D(12, CFG(out_channels=out_channels))
+    assert compute_sequential_output_shape(model_1d, seq_len, batch_size) == model_1d(tensor_1d).shape
+
+
+def test_compute_module_size():
+    in_features, out_features = 10, 20
+
+    class Model(torch.nn.Sequential):
+        def __init__(self):
+            super().__init__()
+            # linear with bias
+            self.add_module(
+                "linear",
+                torch.nn.Linear(in_features, out_features, dtype=torch.float16),
+            )
+            self.register_buffer("hehe", torch.ones(20, 2, dtype=torch.float64))
+
+    model = Model()
+    model.linear.weight.requires_grad_(False)
+
+    assert compute_module_size(model) == out_features
+    assert compute_module_size(model, requires_grad=False) == in_features * out_features + out_features
+    assert (
+        compute_module_size(model, requires_grad=False, include_buffers=True)
+        == in_features * out_features + out_features + 20 * 2
+    )
+    assert compute_module_size(model, requires_grad=False, include_buffers=True, human=True) == "0.7K"
+    assert compute_module_size(model, requires_grad=False, include_buffers=False, human=True) == "0.4K"
+    assert compute_module_size(model, human=True) == "40.0B"
+
+    with pytest.warns(
+        RuntimeWarning,
+        match="`include_buffers` is ignored when `requires_grad` is True",
+    ):
+        compute_module_size(model, requires_grad=True, include_buffers=True)
+
+
+def test_default_collate_fn():
+    batch_size = 32
+    shape_1 = (12, 2000)
+    shape_2 = (26,)
+    shape_3 = (2000, 4)
+
+    batch_data = [
+        (
+            DEFAULTS.RNG.uniform(size=shape_1),  # type: ignore
+            DEFAULTS.RNG.uniform(size=shape_2),  # type: ignore
+            DEFAULTS.RNG.uniform(size=shape_3),  # type: ignore
+        )
+        for _ in range(batch_size)
+    ]
+    tensor_1, tensor_2, tensor_3 = default_collate_fn(batch_data)
+    assert tensor_1.shape == (batch_size, *shape_1)  # type: ignore
+    assert tensor_2.shape == (batch_size, *shape_2)  # type: ignore
+    assert tensor_3.shape == (batch_size, *shape_3)  # type: ignore
+
+    batch_data = [
+        dict(
+            tensor_1=DEFAULTS.RNG.uniform(size=shape_1),  # type: ignore
+            tensor_2=DEFAULTS.RNG.uniform(size=shape_2),  # type: ignore
+            tensor_3=DEFAULTS.RNG.uniform(size=shape_3),  # type: ignore
+        )
+        for _ in range(batch_size)
+    ]
+    tensors = default_collate_fn(batch_data)
+    assert tensors["tensor_1"].shape == (batch_size, *shape_1)  # type: ignore
+    assert tensors["tensor_2"].shape == (batch_size, *shape_2)  # type: ignore
+    assert tensors["tensor_3"].shape == (batch_size, *shape_3)  # type: ignore
+
+    with pytest.raises(ValueError, match="Invalid batch"):
+        default_collate_fn([1])  # type: ignore
+
+    with pytest.raises(ValueError, match="No data"):
+        default_collate_fn([tuple()])
+
+
+def test_compute_receptive_field():
+    assert (
+        compute_receptive_field(
+            kernel_sizes=[11, 2, 7, 7, 2, 5, 5, 5, 2],
+            strides=[1, 2, 1, 1, 2, 1, 1, 1, 2],
+        )
+        == 90
+    )
+    assert (
+        compute_receptive_field(
+            kernel_sizes=[11, 2, 7, 7, 2, 5, 5, 5, 2],
+            strides=[1, 2, 1, 1, 2, 1, 1, 1, 2],
+            dilations=[2, 1, 2, 4, 1, 8, 8, 8, 1],
+        )
+        == 484
+    )
+    assert (
+        compute_receptive_field(
+            kernel_sizes=[11, 2, 7, 7, 2, 5, 5, 5, 2],
+            strides=[1, 2, 1, 1, 2, 1, 1, 1, 2],
+            dilations=[4, 1, 4, 8, 1, 16, 32, 64, 1],
+        )
+        == 1984
+    )
+    assert (
+        compute_receptive_field(
+            kernel_sizes=[11, 2, 7, 7, 2, 5, 5, 5, 2],
+            strides=[1, 2, 1, 1, 2, 1, 1, 1, 2],
+            dilations=[4, 1, 4, 8, 1, 16, 32, 64, 1],
+            input_len=1000,
+        )
+        == 1000
+    )
+    assert (
+        compute_receptive_field(
+            kernel_sizes=[11, 2, 7, 7, 2, 5, 5, 5, 2],
+            strides=[1, 2, 1, 1, 2, 1, 1, 1, 2],
+            dilations=[4, 1, 4, 8, 1, 16, 32, 64, 1],
+            input_len=2500,
+        )
+        == 1984
+    )
+    assert (
+        compute_receptive_field(
+            kernel_sizes=[11, 2, 7, 7, 2, 5, 5, 5, 2],
+            strides=[1, 2, 1, 1, 2, 1, 1, 1, 2],
+            fs=500,
+        )
+        == 0.18
+    )
+
+
+def test_adjust_cnn_filter_lengths():
+    fs = 200
+    config = dict(
+        fs=fs,
+        block_1=dict(
+            filter_length=15,
+            fs=fs,
+        ),
+        block_2=dict(
+            filter_lengths=[9, 9, 6],
+            fs=fs,
+        ),
+        block_3=dict(
+            filter_size=11,
+            fs=fs,
+        ),
+        block_4=dict(
+            filter_sizes=[9, 5, 5],
+            fs=fs,
+        ),
+    )
+    new_fs = 400
+    new_config = adjust_cnn_filter_lengths(config, fs=new_fs)
+    assert new_config == dict(
+        fs=new_fs,
+        block_1=dict(
+            filter_length=31,
+            fs=new_fs,
+        ),
+        block_2=dict(
+            filter_lengths=[19, 19, 13],
+            fs=new_fs,
+        ),
+        block_3=dict(
+            filter_size=23,
+            fs=new_fs,
+        ),
+        block_4=dict(
+            filter_sizes=[19, 11, 11],
+            fs=new_fs,
+        ),
+    )
+    new_config = adjust_cnn_filter_lengths(config, fs=new_fs, ensure_odd=False)
+    assert new_config == dict(
+        fs=new_fs,
+        block_1=dict(
+            filter_length=30,
+            fs=new_fs,
+        ),
+        block_2=dict(
+            filter_lengths=[18, 18, 12],
+            fs=new_fs,
+        ),
+        block_3=dict(
+            filter_size=22,
+            fs=new_fs,
+        ),
+        block_4=dict(
+            filter_sizes=[18, 10, 10],
+            fs=new_fs,
+        ),
+    )
+
+    new_fs = 100
+    new_config = adjust_cnn_filter_lengths(config, fs=new_fs)
+    assert new_config == dict(
+        fs=new_fs,
+        block_1=dict(
+            filter_length=9,
+            fs=new_fs,
+        ),
+        block_2=dict(
+            filter_lengths=[5, 5, 3],
+            fs=new_fs,
+        ),
+        block_3=dict(
+            filter_size=7,
+            fs=new_fs,
+        ),
+        block_4=dict(
+            filter_sizes=[5, 3, 3],
+            fs=new_fs,
+        ),
+    )
+    new_config = adjust_cnn_filter_lengths(config, fs=new_fs, ensure_odd=False)
+    assert new_config == dict(
+        fs=new_fs,
+        block_1=dict(
+            filter_length=8,
+            fs=new_fs,
+        ),
+        block_2=dict(
+            filter_lengths=[4, 4, 3],
+            fs=new_fs,
+        ),
+        block_3=dict(
+            filter_size=6,
+            fs=new_fs,
+        ),
+        block_4=dict(
+            filter_sizes=[4, 2, 2],
+            fs=new_fs,
+        ),
+    )
+
+
+def test_mixin_classes():
+    model_1d = Model1D(12, CFG(out_channels=128))
+    assert isinstance(model_1d.module_size, int)
+    assert model_1d.module_size > 0
+    assert isinstance(model_1d.sizeof, int)
+    assert model_1d.sizeof > model_1d.module_size
+
+    assert isinstance(model_1d.module_size_, str)
+    assert isinstance(model_1d.sizeof_, str)
+
+    assert isinstance(model_1d.dtype_, str)
+    assert isinstance(model_1d.device_, str)
+
+    # test pth/pt file
+    save_path = Path(__file__).resolve().parents[1] / "tmp" / "test_mixin.pth"
+    # convert save_path to bytes to cover bytes path handling code
+    save_path = str(save_path).encode()  # of type bytes
+    model_1d.save(save_path, CFG(dict(n_leads=12)), extra_items={"xxx": {"ones": torch.ones((2, 2))}}, use_safetensors=False)
+    assert Path(save_path.decode()).is_file()
+    loaded_model, _ = Model1D.from_checkpoint(save_path)
+    assert repr(model_1d) == repr(loaded_model)
+    save_path = Path(save_path.decode())
+    save_path.unlink()
+
+    # test that saving with .pth extension does not warn and keeps .pth extension by default
+    model_1d.save(save_path, CFG(dict(n_leads=12)), extra_items={"xxx": {"ones": torch.ones((2, 2))}})
+    assert save_path.is_file()
+    assert not save_path.with_suffix(".safetensors").is_file()
+    save_path.unlink()
+
+    # test single safetensors file
+    save_path = Path(__file__).resolve().parents[1] / "tmp" / "test_mixin.safetensors"
+    model_1d.save(save_path, CFG(dict(n_leads=12)), extra_items={"xxx": {"ones": torch.ones((2, 2))}})
+    assert save_path.is_file()
+    loaded_model, _ = Model1D.from_checkpoint(save_path)
+    assert repr(model_1d) == repr(loaded_model)
+    save_path.unlink()
+
+    # test directory with safetensors
+    save_path = Path(__file__).resolve().parents[1] / "tmp" / "test_mixin.safetensors"
+    model_1d.save(
+        save_path, CFG(dict(n_leads=12)), extra_items={"xxx": {"ones": torch.ones((2, 2))}}, safetensors_single_file=False
+    )
+    assert save_path.with_suffix("").is_dir()
+    loaded_model, _ = Model1D.from_checkpoint(save_path.with_suffix(""))
+    assert repr(model_1d) == repr(loaded_model)
+    shutil.rmtree(save_path.with_suffix(""))
+
+    # test remote un-compressed model
+    save_path = Path(__file__).resolve().parents[1] / "tmp" / "test_remote_model"
+    save_path.mkdir(exist_ok=True, parents=True)
+    loaded_model, _ = Model1D.from_remote(
+        url="https://github.com/DeepPSP/torch_ecg/releases/download/test-assets-v1/test-remote-model.pth",
+        model_dir=save_path,
+        weights_only=False,
+    )
+    assert isinstance(loaded_model, Model1D)
+    shutil.rmtree(save_path)
+
+    # test remote compressed model
+    save_path = Path(__file__).resolve().parents[1] / "tmp" / "test_remote_model"
+    save_path.mkdir(exist_ok=True, parents=True)
+    loaded_model, _ = Model1D.from_remote(
+        url="https://github.com/DeepPSP/torch_ecg/releases/download/test-assets-v1/test-remote-model.zip",
+        model_dir=save_path,
+        weights_only=False,
+    )
+    assert isinstance(loaded_model, Model1D)
+    shutil.rmtree(save_path)
+
+    model_dummy = ModelDummy(12, CFG(out_channels=128))
+    assert model_dummy.module_size == model_dummy.sizeof == 0
+    assert model_dummy.module_size_ == model_dummy.sizeof_ == "0.0B"
+    assert model_dummy.dtype == torch.float32
+    assert model_dummy.device == torch.device("cpu")
+    inp = torch.randn(1, 12, 1000)
+    out = model_dummy(inp)
+    assert inp is out
+
+
+def test_ckpt_decimal_suffix_path():
+    """Regression test for Bug A: CkptMixin.save() with a decimal-valued suffix.
+
+    Paths like ``…metric_0.91`` have ``.91`` as their pathlib suffix.
+    The old code did ``path.with_suffix(".safetensors")`` which silently
+    truncated the name to ``…metric_0.safetensors``.  The fix appends the
+    extension instead of replacing it, so the actual file is
+    ``…metric_0.91.safetensors``.
+    """
+    import shutil
+
+    tmp = Path(__file__).resolve().parents[1] / "tmp"
+    tmp.mkdir(exist_ok=True)
+
+    model = Model1D(12, CFG(out_channels=128))
+
+    # --- single-file safetensors (trainer default) ---
+    # Simulate the path that BaseTrainer generates for a checkpoint with a
+    # decimal metric value, e.g. "…_metric_0.91"
+    stem = tmp / "checkpoint_epoch1_metric_0.91"
+    expected = Path(str(stem) + ".safetensors")  # correct: append
+    wrong = stem.with_suffix(".safetensors")  # old bug: "…metric_0.safetensors"
+
+    actual = model.save(stem, CFG(n_leads=12))
+
+    assert actual == expected, f"Expected {expected}, got {actual}"
+    assert expected.is_file(), "Correct .safetensors file was not created"
+    assert not wrong.is_file(), "Buggy truncated path should NOT exist"
+
+    # Verify the saved file can be loaded back
+    loaded, _ = Model1D.from_checkpoint(expected)
+    assert repr(model) == repr(loaded)
+    expected.unlink()
+
+    # --- non-single-file safetensors (directory) ---
+    # The returned path should be the directory (stem without .safetensors)
+    stem_dir = tmp / "checkpoint_epoch1_metric_0.91"
+    actual_dir = model.save(stem_dir, CFG(n_leads=12), safetensors_single_file=False)
+    # After normalization: "…0.91.safetensors", then with_suffix("") → "…0.91" (dir)
+    expected_dir = Path(str(stem_dir))
+    assert actual_dir == expected_dir, f"Expected dir {expected_dir}, got {actual_dir}"
+    assert expected_dir.is_dir()
+    loaded, _ = Model1D.from_checkpoint(expected_dir)
+    assert repr(model) == repr(loaded)
+    shutil.rmtree(expected_dir)
+
+    # --- pth fallback (torch.save) ---
+    pth_path = tmp / "checkpoint_epoch1.pth"
+    actual_pth = model.save(pth_path, CFG(n_leads=12), use_safetensors=False)
+    assert actual_pth == pth_path
+    assert pth_path.is_file()
+    pth_path.unlink()
+
+
+def test_make_safe_globals():
+    # CFG and dict
+    cfg = CFG(a=1, b=None, c={"d": 2})
+    safe_cfg = make_safe_globals(cfg)
+    assert isinstance(safe_cfg, dict)
+    assert not isinstance(safe_cfg, CFG)
+    assert safe_cfg == {"a": 1, "c": {"d": 2}}
+
+    # list and tuple
+    lst = [1, None, 2, (3, None, 4)]
+    safe_lst = make_safe_globals(lst)
+    assert safe_lst == [1, 2, (3, 4)]
+    assert isinstance(safe_lst[2], tuple)
+
+    # set and frozenset
+    s = {1, None, 2}
+    safe_s = make_safe_globals(s)
+    assert safe_s == {1, 2}
+
+    fs = frozenset({1, None, 2})
+    safe_fs = make_safe_globals(fs)
+    assert safe_fs == frozenset({1, 2})
+
+    # torch objects
+    t = torch.randn(2, 2)
+    assert make_safe_globals(t) is t
+
+    # standard types
+    assert make_safe_globals(1) == 1
+    assert make_safe_globals("abc") == "abc"
+    assert make_safe_globals(True) is True
+    assert make_safe_globals(None) is None
+
+    # numpy objects (if in _safe_globals)
+    arr = np.array([1, 2])
+    assert make_safe_globals(arr) is arr
+
+    # DTYPE (instance should be kept as is if it's in _safe_globals)
+    assert make_safe_globals(FLOAT32) is FLOAT32
+
+    # path removal
+    path = Path(__file__).resolve()
+    assert make_safe_globals(path, remove_paths=True) is None
+    assert make_safe_globals(path, remove_paths=False) is path
+
+    path_str = str(path)
+    assert make_safe_globals(path_str, remove_paths=True) is None
+    assert make_safe_globals(path_str, remove_paths=False) == path_str
+
+    # unsafe objects
+    class Unsafe:
+        pass
+
+    assert make_safe_globals(Unsafe()) is None
+
+
+def test_make_safe_globals_dropped_fields_warning(tmp_path):
+    """Dropped fields (non-serializable / path-like) are listed in a warning."""
+    cfg = CFG(
+        keep=1,
+        legit_none=None,
+        func=lambda x: x,  # non-serializable
+        dir1=Path("/definitely/not/existing/db"),  # path-like value
+        db_dir=str(tmp_path),  # a string that happens to exist on disk
+    )
+    with pytest.warns(RuntimeWarning) as record:
+        safe_cfg = make_safe_globals(cfg)
+    msg = str(record[0].message)
+    for key in ("func", "dir1", "db_dir"):
+        assert key in msg, f"dropped key {key!r} not listed in warning: {msg}"
+    # legitimate None values are not reported as dropped
+    assert "legit_none" not in msg
+    assert safe_cfg == {"keep": 1}
+
+
+def test_ckpt_save_full_model_config_roundtrip():
+    """`CkptMixin.save(model_config=...)` persists the full outer config that
+    `from_checkpoint` reconstructs the model from (the 0.0.32/0.0.33
+    safetensors path silently persisted only the model's inner `self.config`,
+    losing top-level fields like `classes`).
+    """
+    import json
+    import shutil
+
+    tmp = Path(__file__).resolve().parents[1] / "tmp" / "ckpt_full_cfg"
+    if tmp.exists():
+        shutil.rmtree(tmp)
+    tmp.mkdir(parents=True)
+
+    model = Model1D(12, CFG(out_channels=128))
+    full_config = CFG(classes=["A", "B", "C"], n_leads=12, out_channels=128)
+    train_config = CFG(n_leads=12)
+
+    # default (no model_config) keeps the old behavior: self.config is saved
+    single = model.save(tmp / "inner", train_config)
+    _, aux = Model1D.from_checkpoint(single)
+    assert aux["n_leads"] == 12
+    with safe_open(str(single), framework="pt") as f:  # type: ignore
+        meta = f.metadata() or {}
+    inner = json.loads(meta["model_config"])
+    assert inner == {"out_channels": 128}
+    single.unlink()
+
+    # explicit model_config: the full outer config is persisted and restored
+    single = model.save(tmp / "full", train_config, model_config=full_config)
+    loaded, _ = Model1D.from_checkpoint(single)
+    assert loaded.config["classes"] == ["A", "B", "C"]
+    assert loaded.config["out_channels"] == 128
+    single.unlink()
+
+    # directory format writes model_config.json with the full config
+    ckpt_dir = model.save(tmp / "dir", train_config, model_config=full_config, safetensors_single_file=False)
+    assert json.loads((ckpt_dir / "model_config.json").read_text())["classes"] == ["A", "B", "C"]
+    loaded, _ = Model1D.from_checkpoint(ckpt_dir)
+    assert loaded.config["classes"] == ["A", "B", "C"]
+    shutil.rmtree(tmp)

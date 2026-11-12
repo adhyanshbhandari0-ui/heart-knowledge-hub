@@ -1,0 +1,18 @@
+name: california-ihss-county-wages-2026
+description: >-
+  The 2026 hourly wage each of California's 58 counties pays an IHSS Individual
+  Provider (in-home caregiver) under the Medi-Cal In-Home Supportive Services
+  program, from the California Department of Social Services. Government program
+  wages, not private-pay prices. CC BY 4.0. Reproducible from a standard-library
+  fetch script.
+source_url: https://californiacarecompass.com/data/california-ihss-county-wages-2026
+repository: https://github.com/asafichaki/california-senior-care-rates-open-data
+license: CC-BY-4.0
+references:
+  - name: CDSS IHSS county wage rates
+    url: https://www.cdss.ca.gov/inforesources/ihss/county-ihss-wage-rates
+data:
+  - name: california-ihss-county-wages-2026.csv
+    description: IHSS Individual Provider hourly wage for all 58 California counties, 2026.
+    path: california-ihss-county-wages-2026.csv
+    format: csv

@@ -1,0 +1,121 @@
+name: Test
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.number }}-${{ github.event.ref }}
+  cancel-in-progress: true
+
+on:
+  pull_request:
+    paths-ignore:
+    - 'docs/**'
+  push:
+    branches:
+      - main
+  release:
+    types:
+      - published
+
+jobs:
+  style:
+    name: Check style
+    runs-on: ubuntu-24.04
+    steps:
+    - uses: actions/checkout@v7
+    - uses: astral-sh/setup-uv@v7
+    - name: Install the project
+      run: uv sync --locked --group lint
+    - name: Run ruff check
+      run: uv run ruff check --output-format=github
+    - name: Run ruff format
+      run: uv run ruff format --check
+    - name: Run ty
+      run: uv run ty check
+
+  test_full:
+    name: Test full extras (Python ${{ matrix.python-version }})
+    needs: style
+    runs-on: ubuntu-24.04
+    strategy:
+      matrix:
+        python-version: ["3.11", "3.14"]
+      fail-fast: false
+    steps:
+    - uses: actions/checkout@v7
+    - uses: astral-sh/setup-uv@v7
+      with:
+        python-version: ${{ matrix.python-version }}
+    - name: Cache PhysioNet test data
+      uses: actions/cache@v5
+      with:
+        path: .cache/sleepecg-test-data
+        key: physionet-slpdb-slp01a-mitdb-234-v1
+    - name: Install the project with full extras (keras + torch)
+      run: uv sync --extra full --python ${{ matrix.python-version }}
+    - name: Run pytest
+      run: uv run pytest
+      env:
+        SLEEPECG_TEST_DATA_DIR: ${{ github.workspace }}/.cache/sleepecg-test-data
+
+  build_wheels:
+    needs: style
+    name: Build wheel (${{ matrix.os }})
+    strategy:
+      matrix:
+        os: [ubuntu-24.04, ubuntu-24.04-arm, windows-2025, macos-15]
+      fail-fast: false
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v7
+      - name: Cache PhysioNet test data
+        uses: actions/cache@v5
+        with:
+          path: .cache/sleepecg-test-data
+          key: physionet-slpdb-slp01a-mitdb-234-v1
+      - name: Run cibuildwheel
+        uses: pypa/cibuildwheel@v4.3.5
+        env:
+          # SLEEPECG_TEST_DATA_DIR points test_read_slpdb and
+          # test_detect_heartbeats at the cache above instead of re-downloading
+          # from PhysioNet on every run. On Linux, tests run inside a Docker
+          # container where the host filesystem is mounted read/write at /host,
+          # so writes there are visible to the cache step afterwards;
+          # macOS/Windows run natively.
+          CIBW_ENVIRONMENT_PASS_LINUX: GITHUB_WORKSPACE
+          CIBW_ENVIRONMENT_LINUX: SLEEPECG_TEST_DATA_DIR=/host$GITHUB_WORKSPACE/.cache/sleepecg-test-data
+          CIBW_ENVIRONMENT_MACOS: SLEEPECG_TEST_DATA_DIR=$GITHUB_WORKSPACE/.cache/sleepecg-test-data
+          CIBW_ENVIRONMENT_WINDOWS: SLEEPECG_TEST_DATA_DIR=$GITHUB_WORKSPACE/.cache/sleepecg-test-data
+      - uses: actions/upload-artifact@v7
+        with:
+          name: artifact-${{ matrix.os }}
+          path: ./wheelhouse/*.whl
+
+  build_sdist:
+    needs: style
+    name: Build source distribution
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v7
+      - uses: astral-sh/setup-uv@v7
+      - name: Build sdist
+        run: uv build --sdist
+      - uses: actions/upload-artifact@v7
+        with:
+          name: artifact-sdist
+          path: dist/*.tar.gz
+
+  upload-pypi:
+    name: Upload to PyPI
+    needs: [build_wheels, build_sdist]
+    runs-on: ubuntu-24.04
+    if: github.event_name == 'release'
+    permissions:
+      id-token: write
+    steps:
+      - uses: actions/download-artifact@v8
+        with:
+          pattern: artifact-*
+          merge-multiple: true
+          path: dist
+      - uses: astral-sh/setup-uv@v7
+      - name: Publish to PyPI
+        run: uv publish

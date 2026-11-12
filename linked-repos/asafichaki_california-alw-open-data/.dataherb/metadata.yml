@@ -1,0 +1,75 @@
+name: California Assisted Living Waiver County Availability Tracker 2026
+description: County-level participating-facility and licensed-capacity data for California's Medi-Cal Assisted Living Waiver, plus statewide enrollment and waitlist totals published by DHCS.
+contributors:
+  - name: California Care Compass
+    link: https://californiacarecompass.com/
+data:
+  - name: California ALW county availability table
+    description: Participating facility counts, licensed capacity, and statewide ALW totals for each participating California county.
+    path: california-alw-county-tracker-2026.csv
+    format: csv
+    size: 948 bytes
+    fields:
+      - name: county
+        description: California county name.
+      - name: alw_available
+        description: Whether participating ALW facilities are present.
+      - name: participating_facilities
+        description: Count of participating ALW facilities in the county.
+      - name: licensed_capacity_peu
+        description: Sum of licensed participant-enrollment-unit capacity.
+      - name: statewide_enrolled
+        description: DHCS statewide ALW enrollment total for the reporting month.
+      - name: statewide_waitlist
+        description: DHCS statewide ALW waitlist total. This is not a county-level estimate.
+      - name: statewide_as_of
+        description: Reporting month for statewide enrollment and waitlist totals.
+      - name: source_access_date
+        description: Date the government source records were accessed.
+  - name: California ALW metadata and records
+    description: Dataset metadata, provenance, field definitions, caveats, and records.
+    path: california-alw-county-tracker-2026.json
+    format: json
+    size: 5936 bytes
+  - name: California ALW participating facilities
+    description: 1,224 participating-facility records with licensed capacity, location, public contact fields, and source access date.
+    path: california-alw-facilities-2026.csv
+    format: csv
+    size: 217182 bytes
+    fields:
+      - name: provider_number
+        description: Provider number as published in the DHCS source layer.
+      - name: legal_name
+        description: Facility legal name.
+      - name: business_name
+        description: Facility business name.
+      - name: capacity_per_peu
+        description: Licensed participant-enrollment-unit capacity, not live vacancies.
+      - name: address
+        description: Street address.
+      - name: address_2
+        description: Additional address line where published.
+      - name: city
+        description: City.
+      - name: county
+        description: GIS-derived California county.
+      - name: zip_code
+        description: ZIP code.
+      - name: phone_number
+        description: Public facility phone number from DHCS.
+      - name: latitude
+        description: Latitude.
+      - name: longitude
+        description: Longitude.
+      - name: source_access_date
+        description: Date the DHCS source layer was accessed.
+license:
+  - name: Creative Commons Attribution 4.0 International
+    link: https://creativecommons.org/licenses/by/4.0/
+references:
+  - name: Human-readable California ALW tracker
+    link: https://californiacarecompass.com/data/california-alw-county-tracker-2026
+  - name: DHCS ALW participating facilities GIS dataset
+    link: https://gis.dhcs.ca.gov/datasets/CADHCS::alw-assisted-living-facilities/about
+  - name: DHCS ALW enrollment and waitlist report
+    link: https://www.dhcs.ca.gov/services/ltc/Documents/ALW-Enrollment-and-Waitlist.pdf

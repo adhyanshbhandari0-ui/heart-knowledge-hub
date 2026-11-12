@@ -1,0 +1,17 @@
+pydata-sphinx-theme>=0.14.1
+sphinx_bootstrap_theme>=0.8.1
+sphinx-gallery>=0.11.0
+jupyter_sphinx>=0.4.0
+sphinx_design>=0.5.0
+myst-nb>=0.16.0
+sphinx>=5.0.0
+numpydoc>=1.4.0
+ipympl
+myst-parser
+sphinxcontrib-bibtex>=2.4.2
+# Canonical URLs, sitemap and per-page metadata. Unpinned like the rest of this
+# file: sphinx itself is unpinned here, so both resolve to versions that match
+# whatever sphinx pip picks. opengraph draws its preview cards with matplotlib,
+# which systole already installs.
+sphinx-sitemap>=2.6.0
+sphinxext-opengraph>=0.9.1

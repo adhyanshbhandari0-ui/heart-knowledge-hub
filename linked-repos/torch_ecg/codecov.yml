@@ -1,0 +1,57 @@
+# Codecov configuration
+# docs: https://docs.codecov.com/docs/codecov-yaml
+#
+# CI is tiered (see .github/workflows/run-pytest.yml): PRs upload only the
+# `core` report (fast lane, `-m "not db"`); the nightly full suite (incl.
+# `db`-marked tests) uploads the `full` report from the 3.12 lane.
+#
+# Carried-forward flags are NOT included in a status unless the status
+# explicitly references them, so a plain `project.default` status compares
+# the PR's core-only report against a core+full base -- a spurious ~-25%
+# failure even on zero-code-change PRs (observed on #79/#80, 2026-10-20).
+# Hence: per-flag project statuses (created via flag_management), and the
+# combined default project status disabled.  Patch status stays
+# informational because coverage of `db`-marked tests only refreshes
+# nightly.
+#
+# The `full` project status is informational for the same reason: on a PR,
+# the full flag is carried forward from the nightly base and projected
+# onto the PR head, so any PR that adds coverable lines (the first was
+# #93: +60 lines) degrades the projected full coverage beyond the
+# threshold -- a structural false positive, since db-marked coverage
+# cannot refresh outside the nightly run.  The full flag remains an
+# enforceable signal on the nightly upload itself (visible on codecov.io
+# and in the nightly report); PRs are gated on `core`, which they upload.
+
+flag_management:
+  flag_rules:
+    - name: core
+      carryforward: true
+      statuses:
+        - name_prefix: project
+          type: project
+          target: auto
+          threshold: 0.5%
+    - name: full
+      carryforward: true
+      statuses:
+        - name_prefix: project
+          type: project
+          target: auto
+          threshold: 0.5%
+          # informational: PRs cannot refresh db-marked coverage (nightly
+          # only), so the carried-forward projection must not gate them
+          informational: true
+
+coverage:
+  status:
+    # the per-flag `codecov/project/<flag>` statuses come from
+    # flag_management above; the combined one is disabled
+    project:
+      default: false
+    patch:
+      default:
+        informational: true
+
+comment:
+  layout: "reach, diff, flags, files"

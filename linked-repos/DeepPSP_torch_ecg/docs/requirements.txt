@@ -1,0 +1,9 @@
+sphinx
+pydata-sphinx-theme
+sphinx-copybutton
+sphinx-design
+sphinx-emoji-favicon
+sphinx-markdown-tables
+sphinxcontrib-tikz
+sphinxcontrib-bibtex
+myst-parser

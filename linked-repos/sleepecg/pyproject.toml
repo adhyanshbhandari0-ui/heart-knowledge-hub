@@ -1,0 +1,148 @@
+[build-system]
+requires = ["setuptools>=77.0.3", "setuptools-scm", "numpy>=2"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "sleepecg"
+version = "0.7.0.dev0"
+description = "A package for sleep stage classification using ECG data"
+license = "BSD-3-Clause"
+license-files = ["LICENSE"]
+authors = [
+    {name = "Florian Hofer", email = "hofaflo@gmail.com"},
+    {name = "Clemens Brunner", email = "clemens.brunner@gmail.com"},
+]
+readme = "README.md"
+requires-python = ">= 3.11"
+classifiers = [
+    "Operating System :: Microsoft :: Windows",
+    "Operating System :: POSIX :: Linux",
+    "Operating System :: MacOS :: MacOS X",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Programming Language :: Python :: 3.14",
+    "Programming Language :: Python :: Implementation :: CPython",
+    "Typing :: Typed",
+]
+keywords = ["sleep", "ecg", "qrs", "peak"]
+dependencies = [
+    "numpy >= 2.3.2",
+    "pyyaml >= 6.0.3",
+    "requests >= 2.32.3",
+    "scipy >= 1.16.1",
+    "tqdm >= 4.67.0",
+]
+
+[project.optional-dependencies]
+cibw = [  # cibuildwheel uses this for running the test suite
+    "edfio >= 0.4.4",
+    "numba >= 0.63.0",
+    "wfdb >= 4.3.1",
+]
+full = [  # complete package functionality
+    "sleepecg[cibw]",
+    "joblib >= 1.4.2",
+    "matplotlib >= 3.10.5",
+    "keras >= 3.15.0",
+    "torch >= 2.12.0",
+]
+
+[dependency-groups]
+dev = [
+    "pytest >= 9.1.1",
+    "pytest-cov >= 7.1.0",
+    {include-group = "lint"},
+    {include-group = "docs"},
+]
+lint = [
+    "ruff >= 0.16.10",
+    "ty >= 0.0.85",
+    "types-pyyaml",
+    "types-requests",
+    "types-urllib3",
+]
+docs = [  # RTD uses this when building the documentation
+    "mkdocs-material >= 9.7.7",
+    "mkdocstrings-python >= 2.0.9",
+]
+
+[project.urls]
+homepage = "https://github.com/cbrnr/sleepecg"
+documentation = "https://sleepecg.readthedocs.io/en/latest/"
+repository = "https://github.com/cbrnr/sleepecg"
+changelog = "https://github.com/cbrnr/sleepecg/blob/main/CHANGELOG.md"
+
+[tool.setuptools.package-data]
+sleepecg = ["*.yml", "data/*", "classifiers/*.zip"]
+
+[tool.cibuildwheel]
+test-requires = "pytest"
+test-extras = "cibw"
+test-command = "pytest {package}"
+skip = "*musllinux*"
+build = "cp311-*"  # abi3
+archs = "native"
+
+[tool.cibuildwheel.linux]
+manylinux-x86_64-image = "manylinux_2_28"
+manylinux-aarch64-image = "manylinux_2_28"
+
+[tool.cibuildwheel.windows]
+before-build = "pip install delvewheel"
+repair-wheel-command = [
+    "delvewheel repair -w {dest_dir} {wheel}",
+]
+
+[[tool.cibuildwheel.overrides]]
+select = "*"
+inherit.repair-wheel-command = "append"
+repair-wheel-command = [
+  "pipx run abi3audit --strict --report {wheel}",
+]
+
+[tool.pytest]
+minversion = "9"
+testpaths = ["tests"]
+log_level = "INFO"
+strict = true
+markers = ["c_extension"]
+filterwarnings = [
+    "error",
+    # wfdb still passes inplace= to pandas, which pandas >= 3.1 deprecates
+    "ignore:The inplace keyword:pandas.errors.Pandas4Warning",
+]
+
+[tool.ruff.lint]
+extend-select = ["C4", "D", "E501", "PERF", "W"]
+ignore = ["D105", "DTZ"]
+
+[tool.ruff.lint.per-file-ignores]
+"__init__.py" = ["F401", "F403"]
+"**/examples/*.py" = ["D100"]
+"setup.py" = ["D10"]
+
+[tool.ruff.lint.pycodestyle]
+max-doc-length = 88
+
+[tool.ruff.lint.pydocstyle]
+convention = "numpy"
+
+[tool.ty.src]
+include = ["src"]
+
+[tool.ty.analysis]
+allowed-unresolved-imports = [
+    "edfio",
+    "joblib",
+    "keras",
+    "keras.**",
+    "matplotlib",
+    "matplotlib.*",
+    "numba",
+    "torch",
+    "torch.**",
+    "wfdb",
+]
+strict-equality-semantics = true

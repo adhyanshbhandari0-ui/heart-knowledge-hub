@@ -1,0 +1,53 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1000" height="760" viewBox="0 0 1000 760" role="img" aria-labelledby="title desc">
+<title id="title">Licensed Assisted Living Waiver capacity by California county</title>
+<desc id="desc">Horizontal bar chart showing licensed participant-enrollment-unit capacity in the 15 California counties with Assisted Living Waiver facilities.</desc>
+<rect width="100%" height="100%" fill="#fbfaf7"/>
+<text x="40" y="44" font-family="system-ui,sans-serif" font-size="26" font-weight="700" fill="#173d3f">California ALW licensed capacity by county</text>
+<text x="40" y="72" font-family="system-ui,sans-serif" font-size="15" fill="#52616b">Licensed PEU capacity is an approved ceiling, not a live vacancy count.</text>
+<text x="158" y="120" text-anchor="end" font-family="system-ui,sans-serif" font-size="14" fill="#26303a">Los Angeles</text>
+<rect x="170" y="105" width="730" height="22" rx="3" fill="#287d79"/>
+<text x="908" y="121" font-family="system-ui,sans-serif" font-size="13" fill="#26303a">17,688</text>
+<text x="158" y="158" text-anchor="end" font-family="system-ui,sans-serif" font-size="14" fill="#26303a">Orange</text>
+<rect x="170" y="143" width="213" height="22" rx="3" fill="#287d79"/>
+<text x="391" y="159" font-family="system-ui,sans-serif" font-size="13" fill="#26303a">5,155</text>
+<text x="158" y="196" text-anchor="end" font-family="system-ui,sans-serif" font-size="14" fill="#26303a">Riverside</text>
+<rect x="170" y="181" width="147" height="22" rx="3" fill="#287d79"/>
+<text x="325" y="197" font-family="system-ui,sans-serif" font-size="13" fill="#26303a">3,571</text>
+<text x="158" y="234" text-anchor="end" font-family="system-ui,sans-serif" font-size="14" fill="#26303a">San Diego</text>
+<rect x="170" y="219" width="108" height="22" rx="3" fill="#287d79"/>
+<text x="286" y="235" font-family="system-ui,sans-serif" font-size="13" fill="#26303a">2,624</text>
+<text x="158" y="272" text-anchor="end" font-family="system-ui,sans-serif" font-size="14" fill="#26303a">San Bernardino</text>
+<rect x="170" y="257" width="97" height="22" rx="3" fill="#287d79"/>
+<text x="275" y="273" font-family="system-ui,sans-serif" font-size="13" fill="#26303a">2,359</text>
+<text x="158" y="310" text-anchor="end" font-family="system-ui,sans-serif" font-size="14" fill="#26303a">Sacramento</text>
+<rect x="170" y="295" width="84" height="22" rx="3" fill="#287d79"/>
+<text x="262" y="311" font-family="system-ui,sans-serif" font-size="13" fill="#26303a">2,032</text>
+<text x="158" y="348" text-anchor="end" font-family="system-ui,sans-serif" font-size="14" fill="#26303a">Fresno</text>
+<rect x="170" y="333" width="70" height="22" rx="3" fill="#287d79"/>
+<text x="248" y="349" font-family="system-ui,sans-serif" font-size="13" fill="#26303a">1,695</text>
+<text x="158" y="386" text-anchor="end" font-family="system-ui,sans-serif" font-size="14" fill="#26303a">Alameda</text>
+<rect x="170" y="371" width="47" height="22" rx="3" fill="#287d79"/>
+<text x="225" y="387" font-family="system-ui,sans-serif" font-size="13" fill="#26303a">1,132</text>
+<text x="158" y="424" text-anchor="end" font-family="system-ui,sans-serif" font-size="14" fill="#26303a">Kern</text>
+<rect x="170" y="409" width="28" height="22" rx="3" fill="#287d79"/>
+<text x="206" y="425" font-family="system-ui,sans-serif" font-size="13" fill="#26303a">672</text>
+<text x="158" y="462" text-anchor="end" font-family="system-ui,sans-serif" font-size="14" fill="#26303a">San Joaquin</text>
+<rect x="170" y="447" width="26" height="22" rx="3" fill="#287d79"/>
+<text x="204" y="463" font-family="system-ui,sans-serif" font-size="13" fill="#26303a">633</text>
+<text x="158" y="500" text-anchor="end" font-family="system-ui,sans-serif" font-size="14" fill="#26303a">Contra Costa</text>
+<rect x="170" y="485" width="25" height="22" rx="3" fill="#287d79"/>
+<text x="203" y="501" font-family="system-ui,sans-serif" font-size="13" fill="#26303a">596</text>
+<text x="158" y="538" text-anchor="end" font-family="system-ui,sans-serif" font-size="14" fill="#26303a">Santa Clara</text>
+<rect x="170" y="523" width="11" height="22" rx="3" fill="#287d79"/>
+<text x="189" y="539" font-family="system-ui,sans-serif" font-size="13" fill="#26303a">270</text>
+<text x="158" y="576" text-anchor="end" font-family="system-ui,sans-serif" font-size="14" fill="#26303a">San Mateo</text>
+<rect x="170" y="561" width="10" height="22" rx="3" fill="#287d79"/>
+<text x="188" y="577" font-family="system-ui,sans-serif" font-size="13" fill="#26303a">248</text>
+<text x="158" y="614" text-anchor="end" font-family="system-ui,sans-serif" font-size="14" fill="#26303a">Sonoma</text>
+<rect x="170" y="599" width="9" height="22" rx="3" fill="#287d79"/>
+<text x="187" y="615" font-family="system-ui,sans-serif" font-size="13" fill="#26303a">210</text>
+<text x="158" y="652" text-anchor="end" font-family="system-ui,sans-serif" font-size="14" fill="#26303a">San Francisco</text>
+<rect x="170" y="637" width="7" height="22" rx="3" fill="#287d79"/>
+<text x="185" y="653" font-family="system-ui,sans-serif" font-size="13" fill="#26303a">180</text>
+<text x="40" y="726" font-family="system-ui,sans-serif" font-size="12" fill="#67737d">Source: California DHCS ALW participating-facilities GIS layer. California Care Compass, version 2026.1.</text>
+</svg>

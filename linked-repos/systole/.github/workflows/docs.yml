@@ -1,0 +1,55 @@
+name: Build and Deploy
+
+on:
+  push:
+    branches:
+      - master
+  pull_request:
+    branches:
+      - "*"
+permissions:
+  contents: write
+
+jobs:
+  build-and-deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout 🛎️
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      # The tutorials download ~12 MB example files repeatedly, and executing
+      # every notebook from scratch dominates the build. Both are restored
+      # between runs.
+      - name: Cache example datasets
+        uses: actions/cache@v4
+        with:
+          path: ~/.systole/data
+          key: systole-datasets-v1
+
+      - name: Cache executed notebooks
+        uses: actions/cache@v4
+        with:
+          path: docs/.jupyter_cache
+          key: jupyter-cache-${{ hashFiles('docs/source/**/*.md', 'docs/source/**/*.ipynb', 'docs/source/examples/**/*.py', 'systole/**/*.py') }}
+          restore-keys: |
+            jupyter-cache-
+
+      - name: Build
+        run: |
+          pip install .
+          pip install -r requirements-docs.txt
+          sphinx-build -b html docs/source docs/build/html
+
+      # Build on every pull request, but only publish from master -- otherwise
+      # any open PR overwrites the live documentation site.
+      - name: Deploy 🚀
+        if: github.ref == 'refs/heads/master' && github.event_name == 'push'
+        uses: JamesIves/github-pages-deploy-action@v4
+        with:
+          folder: docs/build/html
+          BRANCH: gh-pages

@@ -1,0 +1,71 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>California Assisted Living Waiver Open Data</title>
+  <meta name="description" content="Open CSV and JSON data on California Assisted Living Waiver facilities, licensed capacity, statewide enrollment, and the statewide waitlist.">
+  <link rel="canonical" href="https://asafichaki.github.io/california-alw-open-data/">
+  <script type="application/ld+json">
+  {
+    "@context": "https://schema.org",
+    "@type": "Dataset",
+    "name": "California Assisted Living Waiver County Availability Tracker 2026",
+    "description": "County-level participating-facility and licensed-capacity data for California's Medi-Cal Assisted Living Waiver, plus DHCS statewide enrollment and waitlist totals.",
+    "url": "https://asafichaki.github.io/california-alw-open-data/",
+    "sameAs": "https://californiacarecompass.com/data/california-alw-county-tracker-2026",
+    "version": "2026.1",
+    "datePublished": "2026-05-30",
+    "license": "https://creativecommons.org/licenses/by/4.0/",
+    "isAccessibleForFree": true,
+    "spatialCoverage": "California, United States",
+    "creator": {
+      "@type": "Organization",
+      "name": "California Care Compass",
+      "url": "https://californiacarecompass.com/"
+    },
+    "distribution": [
+      {
+        "@type": "DataDownload",
+        "encodingFormat": "text/csv",
+        "contentUrl": "https://raw.githubusercontent.com/asafichaki/california-alw-open-data/main/california-alw-county-tracker-2026.csv"
+      },
+      {
+        "@type": "DataDownload",
+        "encodingFormat": "application/json",
+        "contentUrl": "https://raw.githubusercontent.com/asafichaki/california-alw-open-data/main/california-alw-county-tracker-2026.json"
+      },
+      {
+        "@type": "DataDownload",
+        "encodingFormat": "text/csv",
+        "contentUrl": "https://raw.githubusercontent.com/asafichaki/california-alw-open-data/main/california-alw-facilities-2026.csv"
+      }
+    ]
+  }
+  </script>
+  <style>
+    body { max-width: 760px; margin: 64px auto; padding: 0 24px; font: 17px/1.65 system-ui, sans-serif; color: #26303a; }
+    h1 { line-height: 1.15; color: #173d3f; }
+    a { color: #176b70; }
+    .stat { display: inline-block; margin: 6px 12px 6px 0; padding: 10px 14px; background: #eef6f4; border-radius: 6px; }
+    .note { padding: 16px; background: #f7f3ea; border-left: 4px solid #b0894f; }
+  </style>
+</head>
+<body>
+  <h1>California Assisted Living Waiver Open Data</h1>
+  <p>County-level participating-facility and licensed-capacity data for California's Medi-Cal Assisted Living Waiver, with statewide enrollment and waitlist totals from the California Department of Health Care Services.</p>
+  <p><span class="stat"><strong>14,847</strong> enrolled</span><span class="stat"><strong>18,365</strong> waiting</span><span class="stat"><strong>15</strong> participating counties</span></p>
+  <p class="note"><strong>Important limitation:</strong> DHCS reports one statewide waitlist. This dataset does not estimate county-level waitlists.</p>
+  <h2>Download</h2>
+  <ul>
+    <li><a href="california-alw-county-tracker-2026.csv">CSV</a></li>
+    <li><a href="california-alw-county-tracker-2026.json">JSON with metadata and provenance</a></li>
+    <li><a href="california-alw-facilities-2026.csv">Facility-level CSV, 1,224 records</a></li>
+    <li><a href="datapackage.json">Frictionless Data package</a></li>
+  </ul>
+  <h2>Sources and context</h2>
+  <p>Facility counts and licensed capacity are derived from the <a href="https://gis.dhcs.ca.gov/datasets/CADHCS::alw-assisted-living-facilities/about">DHCS participating-facilities GIS dataset</a>. Enrollment and waitlist totals come from the <a href="https://www.dhcs.ca.gov/services/ltc/Documents/ALW-Enrollment-and-Waitlist.pdf">DHCS enrollment and waitlist report</a>.</p>
+  <p>See the <a href="https://californiacarecompass.com/data/california-alw-county-tracker-2026">human-readable tracker and county breakdowns at California Care Compass</a>, or inspect the <a href="https://github.com/asafichaki/california-alw-open-data">source repository on GitHub</a>.</p>
+  <p>Version 2026.1. Licensed under <a href="https://creativecommons.org/licenses/by/4.0/">CC BY 4.0</a>.</p>
+</body>
+</html>

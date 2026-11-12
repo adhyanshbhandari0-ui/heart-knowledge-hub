@@ -1,0 +1,16 @@
+*.pyc
+*-checkpoint.ipynb
+*-checkpoint.md
+mypyreports/
+build/
+dist/
+*.egg-info/
+htmlcov/
+.coverage
+.vscode/
+docs/source/auto_examples
+docs/source/generated
+docs/source/api
+coverage.xml
+venv/
+docs/.jupyter_cache/

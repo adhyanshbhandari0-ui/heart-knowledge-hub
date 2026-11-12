@@ -1,0 +1,103 @@
+{
+  "@context": {
+    "@vocab": "https://schema.org/",
+    "cr": "http://mlcommons.org/croissant/",
+    "sc": "https://schema.org/",
+    "data": {
+      "@id": "cr:data",
+      "@type": "@json"
+    },
+    "dataType": {
+      "@id": "cr:dataType",
+      "@type": "@vocab"
+    },
+    "field": "cr:field",
+    "fileObject": "cr:fileObject",
+    "recordSet": "cr:recordSet",
+    "source": "cr:source"
+  },
+  "@type": "sc:Dataset",
+  "conformsTo": "http://mlcommons.org/croissant/1.0",
+  "name": "verified-supplement-evidence",
+  "description": "Evidence-graded dietary-supplement dataset: dosing, form/bioavailability, drug-nutrient interactions, population need, and cost-per-effective-dose product comparisons. Every clinical claim carries a PubMed PMID. Compiled by Verified Supplement Data.",
+  "url": "https://verifiedsupplementdata.com/data/",
+  "sameAs": [
+    "https://huggingface.co/datasets/erinheit451/verified-supplement-evidence",
+    "https://www.kaggle.com/datasets/roses451/verified-supplement-evidence-database"
+  ],
+  "identifier": "https://doi.org/10.57967/hf/9356",
+  "license": "https://creativecommons.org/licenses/by/4.0/",
+  "creator": {
+    "@type": "Organization",
+    "name": "Verified Supplement Data",
+    "url": "https://verifiedsupplementdata.com"
+  },
+  "keywords": [
+    "dietary supplements",
+    "clinical evidence",
+    "PubMed",
+    "bioavailability",
+    "drug-nutrient interactions",
+    "nutrition",
+    "cost-per-dose"
+  ],
+  "version": "1.0",
+  "distribution": [
+    {
+      "@type": "cr:FileObject",
+      "@id": "supplement-evidence-v1.csv",
+      "name": "supplement-evidence-v1.csv",
+      "contentUrl": "data/supplement-evidence-v1.csv",
+      "encodingFormat": "text/csv",
+      "sha256": "f331159ee2a94ddc42ca8a79b71409224e6e5ed4eed8f475178a31ee6ea9f8a4"
+    },
+    {
+      "@type": "cr:FileObject",
+      "@id": "condition-ingredient-v1.csv",
+      "name": "condition-ingredient-v1.csv",
+      "contentUrl": "data/condition-ingredient-v1.csv",
+      "encodingFormat": "text/csv",
+      "sha256": "584416500eddef60a11e25e2a31de3b4e0571c7b8bc941c6d981735c53e2eaf5"
+    },
+    {
+      "@type": "cr:FileObject",
+      "@id": "form-bioavailability-v1.csv",
+      "name": "form-bioavailability-v1.csv",
+      "contentUrl": "data/form-bioavailability-v1.csv",
+      "encodingFormat": "text/csv",
+      "sha256": "52eab2a6ef20e42300f70f11928fee70c4df666861eeade03380733fc18b51ad"
+    },
+    {
+      "@type": "cr:FileObject",
+      "@id": "ingredient-master-v1.csv",
+      "name": "ingredient-master-v1.csv",
+      "contentUrl": "data/ingredient-master-v1.csv",
+      "encodingFormat": "text/csv",
+      "sha256": "7ae268a8f3168a19bd3492ea944194ee1332e1bcff837d6b2078ce27c795cea6"
+    },
+    {
+      "@type": "cr:FileObject",
+      "@id": "medication-depletion-v1.csv",
+      "name": "medication-depletion-v1.csv",
+      "contentUrl": "data/medication-depletion-v1.csv",
+      "encodingFormat": "text/csv",
+      "sha256": "e4974f07d67fdb2379b16faf91825d2f206a80f8ca0ecc0ce47b3e9d20048920"
+    },
+    {
+      "@type": "cr:FileObject",
+      "@id": "population-need-v1.csv",
+      "name": "population-need-v1.csv",
+      "contentUrl": "data/population-need-v1.csv",
+      "encodingFormat": "text/csv",
+      "sha256": "7c0ef01cb9310c2e16b8500fbbf54879bb83d85b0052f2b8ed816a0155f69f32"
+    },
+    {
+      "@type": "cr:FileObject",
+      "@id": "top-pick-by-category.csv",
+      "name": "top-pick-by-category.csv",
+      "contentUrl": "data/top-pick-by-category.csv",
+      "encodingFormat": "text/csv",
+      "sha256": "16f33f0d99a673276c09c47e9784effcd4743ffbb36d512dcba62a01b3b7b0ba"
+    }
+  ]
+}

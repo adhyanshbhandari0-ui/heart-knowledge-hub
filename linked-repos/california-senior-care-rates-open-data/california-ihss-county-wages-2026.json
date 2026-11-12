@@ -1,0 +1,504 @@
+{
+  "dataset_name": "California IHSS Individual Provider County Wage Rates 2026",
+  "version": "2026.1",
+  "license": "CC BY 4.0",
+  "publisher": "California Care Compass (https://californiacarecompass.com/)",
+  "retrieved_at": "2026-11-11T09:30:13+00:00",
+  "measure_type": "provider_wage",
+  "is_private_pay_price": false,
+  "what_this_is": "The hourly wage each California county pays an IHSS Individual Provider (in-home caregiver) under the Medi-Cal In-Home Supportive Services program, as approved by CDSS.",
+  "what_this_is_not": "This is NOT a private-pay home-care agency retail rate, an assisted-living monthly price, a memory-care price, or a survey median. Do not present these wages as what a family pays out of pocket for private care.",
+  "sources": [
+    {
+      "name": "CDSS IHSS county wage rates page",
+      "url": "https://www.cdss.ca.gov/inforesources/ihss/county-ihss-wage-rates",
+      "file_url": "https://www.cdss.ca.gov/Portals/9/IHSS/ip-cc-wages-by-county.xlsx",
+      "sheet": "IP Effective 10-1-2026",
+      "license": "Public domain (California state government)"
+    }
+  ],
+  "definitions": {
+    "hourly_wage_usd": "County-set IHSS Individual Provider hourly wage in US dollars.",
+    "wage_effective_date": "Date the listed wage took effect (ISO 8601).",
+    "monthly_fte_illustration_usd": "ARITHMETIC ILLUSTRATION ONLY, not an observed cost: hourly_wage_usd x 173.33 (a nominal full-time month of 40h/week). Shown only to make the hourly figure intuitive; no family is billed this."
+  },
+  "summary": {
+    "county_count": 58,
+    "lowest": {
+      "county": "Siskiyou",
+      "hourly_wage_usd": 16.9
+    },
+    "highest": {
+      "county": "San Francisco",
+      "hourly_wage_usd": 25.0
+    },
+    "median_hourly_wage_usd": 18.75,
+    "spread_usd": 8.1
+  },
+  "records": [
+    {
+      "county": "Alameda",
+      "hourly_wage_usd": 22.1,
+      "wage_effective_date": "2026-07-01",
+      "monthly_fte_illustration_usd": 3830.59,
+      "measure_type": "provider_wage",
+      "is_private_pay_price": false
+    },
+    {
+      "county": "Alpine",
+      "hourly_wage_usd": 17.85,
+      "wage_effective_date": "2026-07-01",
+      "monthly_fte_illustration_usd": 3093.94,
+      "measure_type": "provider_wage",
+      "is_private_pay_price": false
+    },
+    {
+      "county": "Amador",
+      "hourly_wage_usd": 19.4,
+      "wage_effective_date": "2026-08-01",
+      "monthly_fte_illustration_usd": 3362.6,
+      "measure_type": "provider_wage",
+      "is_private_pay_price": false
+    },
+    {
+      "county": "Butte",
+      "hourly_wage_usd": 17.9,
+      "wage_effective_date": "2026-01-01",
+      "monthly_fte_illustration_usd": 3102.61,
+      "measure_type": "provider_wage",
+      "is_private_pay_price": false
+    },
+    {
+      "county": "Calaveras",
+      "hourly_wage_usd": 17.89,
+      "wage_effective_date": "2026-01-01",
+      "monthly_fte_illustration_usd": 3100.87,
+      "measure_type": "provider_wage",
+      "is_private_pay_price": false
+    },
+    {
+      "county": "Colusa",
+      "hourly_wage_usd": 17.4,
+      "wage_effective_date": "2026-01-01",
+      "monthly_fte_illustration_usd": 3015.94,
+      "measure_type": "provider_wage",
+      "is_private_pay_price": false
+    },
+    {
+      "county": "Contra Costa",
+      "hourly_wage_usd": 20.03,
+      "wage_effective_date": "2026-01-01",
+      "monthly_fte_illustration_usd": 3471.8,
+      "measure_type": "provider_wage",
+      "is_private_pay_price": false
+    },
+    {
+      "county": "Del Norte",
+      "hourly_wage_usd": 19.5,
+      "wage_effective_date": "2026-09-01",
+      "monthly_fte_illustration_usd": 3379.94,
+      "measure_type": "provider_wage",
+      "is_private_pay_price": false
+    },
+    {
+      "county": "El Dorado",
+      "hourly_wage_usd": 17.4,
+      "wage_effective_date": "2026-01-01",
+      "monthly_fte_illustration_usd": 3015.94,
+      "measure_type": "provider_wage",
+      "is_private_pay_price": false
+    },
+    {
+      "county": "Fresno",
+      "hourly_wage_usd": 18.75,
+      "wage_effective_date": "2026-01-01",
+      "monthly_fte_illustration_usd": 3249.94,
+      "measure_type": "provider_wage",
+      "is_private_pay_price": false
+    },
+    {
+      "county": "Glenn",
+      "hourly_wage_usd": 17.9,
+      "wage_effective_date": "2026-01-01",
+      "monthly_fte_illustration_usd": 3102.61,
+      "measure_type": "provider_wage",
+      "is_private_pay_price": false
+    },
+    {
+      "county": "Humboldt",
+      "hourly_wage_usd": 18.4,
+      "wage_effective_date": "2026-01-01",
+      "monthly_fte_illustration_usd": 3189.27,
+      "measure_type": "provider_wage",
+      "is_private_pay_price": false
+    },
+    {
+      "county": "Imperial",
+      "hourly_wage_usd": 18.83,
+      "wage_effective_date": "2026-01-01",
+      "monthly_fte_illustration_usd": 3263.8,
+      "measure_type": "provider_wage",
+      "is_private_pay_price": false
+    },
+    {
+      "county": "Inyo",
+      "hourly_wage_usd": 17.65,
+      "wage_effective_date": "2026-01-01",
+      "monthly_fte_illustration_usd": 3059.27,
+      "measure_type": "provider_wage",
+      "is_private_pay_price": false
+    },
+    {
+      "county": "Kern",
+      "hourly_wage_usd": 17.9,
+      "wage_effective_date": "2026-07-01",
+      "monthly_fte_illustration_usd": 3102.61,
+      "measure_type": "provider_wage",
+      "is_private_pay_price": false
+    },
+    {
+      "county": "Kings",
+      "hourly_wage_usd": 17.5,
+      "wage_effective_date": "2026-01-01",
+      "monthly_fte_illustration_usd": 3033.28,
+      "measure_type": "provider_wage",
+      "is_private_pay_price": false
+    },
+    {
+      "county": "Lake",
+      "hourly_wage_usd": 17.55,
+      "wage_effective_date": "2026-01-01",
+      "monthly_fte_illustration_usd": 3041.94,
+      "measure_type": "provider_wage",
+      "is_private_pay_price": false
+    },
+    {
+      "county": "Lassen",
+      "hourly_wage_usd": 17.55,
+      "wage_effective_date": "2026-01-01",
+      "monthly_fte_illustration_usd": 3041.94,
+      "measure_type": "provider_wage",
+      "is_private_pay_price": false
+    },
+    {
+      "county": "Los Angeles",
+      "hourly_wage_usd": 19.64,
+      "wage_effective_date": "2026-01-01",
+      "monthly_fte_illustration_usd": 3404.2,
+      "measure_type": "provider_wage",
+      "is_private_pay_price": false
+    },
+    {
+      "county": "Madera",
+      "hourly_wage_usd": 17.9,
+      "wage_effective_date": "2026-07-01",
+      "monthly_fte_illustration_usd": 3102.61,
+      "measure_type": "provider_wage",
+      "is_private_pay_price": false
+    },
+    {
+      "county": "Marin",
+      "hourly_wage_usd": 20.4,
+      "wage_effective_date": "2026-02-01",
+      "monthly_fte_illustration_usd": 3535.93,
+      "measure_type": "provider_wage",
+      "is_private_pay_price": false
+    },
+    {
+      "county": "Mariposa",
+      "hourly_wage_usd": 17.5,
+      "wage_effective_date": "2026-01-01",
+      "monthly_fte_illustration_usd": 3033.28,
+      "measure_type": "provider_wage",
+      "is_private_pay_price": false
+    },
+    {
+      "county": "Mendocino",
+      "hourly_wage_usd": 19.71,
+      "wage_effective_date": "2026-01-01",
+      "monthly_fte_illustration_usd": 3416.33,
+      "measure_type": "provider_wage",
+      "is_private_pay_price": false
+    },
+    {
+      "county": "Merced",
+      "hourly_wage_usd": 17.5,
+      "wage_effective_date": "2026-01-01",
+      "monthly_fte_illustration_usd": 3033.28,
+      "measure_type": "provider_wage",
+      "is_private_pay_price": false
+    },
+    {
+      "county": "Modoc",
+      "hourly_wage_usd": 17.75,
+      "wage_effective_date": "2026-01-01",
+      "monthly_fte_illustration_usd": 3076.61,
+      "measure_type": "provider_wage",
+      "is_private_pay_price": false
+    },
+    {
+      "county": "Mono",
+      "hourly_wage_usd": 17.95,
+      "wage_effective_date": "2026-01-01",
+      "monthly_fte_illustration_usd": 3111.27,
+      "measure_type": "provider_wage",
+      "is_private_pay_price": false
+    },
+    {
+      "county": "Monterey",
+      "hourly_wage_usd": 21.04,
+      "wage_effective_date": "2026-07-01",
+      "monthly_fte_illustration_usd": 3646.86,
+      "measure_type": "provider_wage",
+      "is_private_pay_price": false
+    },
+    {
+      "county": "Napa",
+      "hourly_wage_usd": 20.9,
+      "wage_effective_date": "2026-01-01",
+      "monthly_fte_illustration_usd": 3622.6,
+      "measure_type": "provider_wage",
+      "is_private_pay_price": false
+    },
+    {
+      "county": "Nevada",
+      "hourly_wage_usd": 18.5,
+      "wage_effective_date": "2026-01-01",
+      "monthly_fte_illustration_usd": 3206.61,
+      "measure_type": "provider_wage",
+      "is_private_pay_price": false
+    },
+    {
+      "county": "Orange",
+      "hourly_wage_usd": 18.9,
+      "wage_effective_date": "2026-01-01",
+      "monthly_fte_illustration_usd": 3275.94,
+      "measure_type": "provider_wage",
+      "is_private_pay_price": false
+    },
+    {
+      "county": "Placer",
+      "hourly_wage_usd": 19.38,
+      "wage_effective_date": "2026-09-01",
+      "monthly_fte_illustration_usd": 3359.14,
+      "measure_type": "provider_wage",
+      "is_private_pay_price": false
+    },
+    {
+      "county": "Plumas",
+      "hourly_wage_usd": 18.5,
+      "wage_effective_date": "2026-01-01",
+      "monthly_fte_illustration_usd": 3206.61,
+      "measure_type": "provider_wage",
+      "is_private_pay_price": false
+    },
+    {
+      "county": "Riverside",
+      "hourly_wage_usd": 19.9,
+      "wage_effective_date": "2026-05-01",
+      "monthly_fte_illustration_usd": 3449.27,
+      "measure_type": "provider_wage",
+      "is_private_pay_price": false
+    },
+    {
+      "county": "Sacramento",
+      "hourly_wage_usd": 19.15,
+      "wage_effective_date": "2026-01-01",
+      "monthly_fte_illustration_usd": 3319.27,
+      "measure_type": "provider_wage",
+      "is_private_pay_price": false
+    },
+    {
+      "county": "San Benito",
+      "hourly_wage_usd": 19.35,
+      "wage_effective_date": "2026-01-01",
+      "monthly_fte_illustration_usd": 3353.94,
+      "measure_type": "provider_wage",
+      "is_private_pay_price": false
+    },
+    {
+      "county": "San Bernardino",
+      "hourly_wage_usd": 19.0,
+      "wage_effective_date": "2026-01-01",
+      "monthly_fte_illustration_usd": 3293.27,
+      "measure_type": "provider_wage",
+      "is_private_pay_price": false
+    },
+    {
+      "county": "San Diego",
+      "hourly_wage_usd": 20.4,
+      "wage_effective_date": "2026-03-01",
+      "monthly_fte_illustration_usd": 3535.93,
+      "measure_type": "provider_wage",
+      "is_private_pay_price": false
+    },
+    {
+      "county": "San Francisco",
+      "hourly_wage_usd": 25.0,
+      "wage_effective_date": "2026-09-01",
+      "monthly_fte_illustration_usd": 4333.25,
+      "measure_type": "provider_wage",
+      "is_private_pay_price": false
+    },
+    {
+      "county": "San Joaquin",
+      "hourly_wage_usd": 18.97,
+      "wage_effective_date": "2026-01-01",
+      "monthly_fte_illustration_usd": 3288.07,
+      "measure_type": "provider_wage",
+      "is_private_pay_price": false
+    },
+    {
+      "county": "San Luis Obispo",
+      "hourly_wage_usd": 21.4,
+      "wage_effective_date": "2026-01-01",
+      "monthly_fte_illustration_usd": 3709.26,
+      "measure_type": "provider_wage",
+      "is_private_pay_price": false
+    },
+    {
+      "county": "San Mateo",
+      "hourly_wage_usd": 21.7,
+      "wage_effective_date": "2026-01-01",
+      "monthly_fte_illustration_usd": 3761.26,
+      "measure_type": "provider_wage",
+      "is_private_pay_price": false
+    },
+    {
+      "county": "Santa Barbara",
+      "hourly_wage_usd": 20.07,
+      "wage_effective_date": "2026-04-01",
+      "monthly_fte_illustration_usd": 3478.73,
+      "measure_type": "provider_wage",
+      "is_private_pay_price": false
+    },
+    {
+      "county": "Santa Clara",
+      "hourly_wage_usd": 20.44,
+      "wage_effective_date": "2026-01-01",
+      "monthly_fte_illustration_usd": 3542.87,
+      "measure_type": "provider_wage",
+      "is_private_pay_price": false
+    },
+    {
+      "county": "Santa Cruz",
+      "hourly_wage_usd": 20.9,
+      "wage_effective_date": "2026-01-01",
+      "monthly_fte_illustration_usd": 3622.6,
+      "measure_type": "provider_wage",
+      "is_private_pay_price": false
+    },
+    {
+      "county": "Shasta",
+      "hourly_wage_usd": 18.5,
+      "wage_effective_date": "2026-01-01",
+      "monthly_fte_illustration_usd": 3206.61,
+      "measure_type": "provider_wage",
+      "is_private_pay_price": false
+    },
+    {
+      "county": "Sierra",
+      "hourly_wage_usd": 18.5,
+      "wage_effective_date": "2026-01-01",
+      "monthly_fte_illustration_usd": 3206.61,
+      "measure_type": "provider_wage",
+      "is_private_pay_price": false
+    },
+    {
+      "county": "Siskiyou",
+      "hourly_wage_usd": 16.9,
+      "wage_effective_date": "2026-09-01",
+      "monthly_fte_illustration_usd": 2929.28,
+      "measure_type": "provider_wage",
+      "is_private_pay_price": false
+    },
+    {
+      "county": "Solano",
+      "hourly_wage_usd": 18.1,
+      "wage_effective_date": "2026-01-01",
+      "monthly_fte_illustration_usd": 3137.27,
+      "measure_type": "provider_wage",
+      "is_private_pay_price": false
+    },
+    {
+      "county": "Sonoma",
+      "hourly_wage_usd": 20.25,
+      "wage_effective_date": "2026-03-01",
+      "monthly_fte_illustration_usd": 3509.93,
+      "measure_type": "provider_wage",
+      "is_private_pay_price": false
+    },
+    {
+      "county": "Stanislaus",
+      "hourly_wage_usd": 18.75,
+      "wage_effective_date": "2026-07-01",
+      "monthly_fte_illustration_usd": 3249.94,
+      "measure_type": "provider_wage",
+      "is_private_pay_price": false
+    },
+    {
+      "county": "Sutter",
+      "hourly_wage_usd": 17.9,
+      "wage_effective_date": "2026-01-01",
+      "monthly_fte_illustration_usd": 3102.61,
+      "measure_type": "provider_wage",
+      "is_private_pay_price": false
+    },
+    {
+      "county": "Tehama",
+      "hourly_wage_usd": 18.4,
+      "wage_effective_date": "2026-07-01",
+      "monthly_fte_illustration_usd": 3189.27,
+      "measure_type": "provider_wage",
+      "is_private_pay_price": false
+    },
+    {
+      "county": "Trinity",
+      "hourly_wage_usd": 18.25,
+      "wage_effective_date": "2026-01-01",
+      "monthly_fte_illustration_usd": 3163.27,
+      "measure_type": "provider_wage",
+      "is_private_pay_price": false
+    },
+    {
+      "county": "Tulare",
+      "hourly_wage_usd": 17.5,
+      "wage_effective_date": "2026-01-01",
+      "monthly_fte_illustration_usd": 3033.28,
+      "measure_type": "provider_wage",
+      "is_private_pay_price": false
+    },
+    {
+      "county": "Tuolumne",
+      "hourly_wage_usd": 17.9,
+      "wage_effective_date": "2026-01-01",
+      "monthly_fte_illustration_usd": 3102.61,
+      "measure_type": "provider_wage",
+      "is_private_pay_price": false
+    },
+    {
+      "county": "Ventura",
+      "hourly_wage_usd": 20.97,
+      "wage_effective_date": "2026-07-01",
+      "monthly_fte_illustration_usd": 3634.73,
+      "measure_type": "provider_wage",
+      "is_private_pay_price": false
+    },
+    {
+      "county": "Yolo",
+      "hourly_wage_usd": 19.05,
+      "wage_effective_date": "2026-01-01",
+      "monthly_fte_illustration_usd": 3301.94,
+      "measure_type": "provider_wage",
+      "is_private_pay_price": false
+    },
+    {
+      "county": "Yuba",
+      "hourly_wage_usd": 18.78,
+      "wage_effective_date": "2026-01-01",
+      "monthly_fte_illustration_usd": 3255.14,
+      "measure_type": "provider_wage",
+      "is_private_pay_price": false
+    }
+  ]
+}

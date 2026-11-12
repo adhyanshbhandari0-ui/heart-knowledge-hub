@@ -1,0 +1,125 @@
+# This workflow will build the docs and publish them to GitHub Pages/Read the Docs.
+
+name: Build Docs with Sphinx and Publish
+
+on:
+  push:
+    branches: [ doc, dev, master ]
+  pull_request:
+    branches: [ master ]
+
+  # Allows you to run this workflow manually from the Actions tab
+  workflow_dispatch:
+
+  schedule:
+    # Run every week on Sunday at 00:00 UTC
+    # mainly for checking the links in the docs
+    - cron: '0 0 * * 0'
+
+env:
+  # Enable bib-lookup
+  DB_BIB_LOOKUP: true
+
+# Sets permissions of the GITHUB_TOKEN to allow deployment to GitHub Pages
+permissions:
+  contents: write
+  pages: write
+  id-token: write
+
+# Allow one concurrent deployment per ref. The group must include the ref:
+# a single global group with `cancel-in-progress` let the docs build of any
+# PR cancel the builds of master/dev and of every other PR (all their
+# required "build" checks then report cancelled/failure).
+concurrency:
+  group: "pages-${{ github.ref }}"
+  cancel-in-progress: true
+
+jobs:
+  build:
+    # Don't run on forked repos.
+    if: github.repository_owner == 'DeepPSP'
+
+    runs-on: ubuntu-22.04
+    strategy:
+      matrix:
+        python-version: ["3.12"]
+
+    steps:
+    - uses: actions/checkout@v7
+    - name: Clear unnecessary system components
+      run: |
+        echo "Free space:"
+        df -h
+        sudo rm -rf /usr/local/lib/android # will release about 10 GB if you don't need Android
+        sudo rm -rf /usr/share/dotnet # will release about 20GB if you don't need .NET
+        sudo rm -rf /opt/ghc
+        sudo rm -rf /usr/local/share/boost
+        sudo rm -rf "$AGENT_TOOLSDIRECTORY"
+    - name: Install system libraries
+      run: |
+        sudo apt update
+        sudo apt install build-essential ffmpeg libsm6 libxext6 libsndfile1 wget -y
+    - name: Set up Python ${{ matrix.python-version }}
+      uses: actions/setup-python@v7
+      with:
+        python-version: ${{ matrix.python-version }}
+        cache: 'pip' # caching pip dependencies
+    - name: List existing Python packages
+      run: |
+        python -m pip list
+    - name: Install dependencies
+      run: |
+        python -m pip install --upgrade pip setuptools wheel
+        python -m pip install -r requirements.txt
+        python -m pip install -r docs/requirements.txt
+        python -m pip uninstall torch-ecg --yes # Remove if already installed
+        pip install -e .[dev]
+    - name: List installed Python packages
+      run: |
+        python -m pip list
+    - name: Setup TeX Live
+      # This is used to render the tikz plots in the docs.
+      # uses: teatimeguest/setup-texlive-action@v3
+      uses: zauguin/install-texlive@v4
+      with:
+        # List of TeXLive-packages contained in the scheme-basic
+        # https://trac.macports.org/wiki/TeXLivePackages
+        # tlmgr info --list scheme-basic
+        # tlmgr info --list collection-latex
+        # tlmgr info --list collection-basic
+        packages: >-
+          scheme-basic
+          algorithm2e
+          biber
+          biblatex
+          pgf
+          pgfplots
+          relsize
+          standalone
+          xetex
+          xecjk
+    - name: Install latexmk and extra software
+      # pandoc was only needed by nbsphinx (removed along with it)
+      run: |
+        sudo apt install latexmk -y
+        sudo apt install texlive-pictures texlive-latex-extra pdf2svg -y
+    - name: Build docs with Sphinx
+      run: |
+        cd docs
+        make html
+    - name: Check for broken links
+      continue-on-error: true
+      run: |
+        cd docs
+        make linkcheck
+    # Publish to GitHub Pages
+    - name: Publish to GitHub Pages
+      # publish only when pushed to 'doc' and 'master' branches or manually triggered
+      if: (github.event_name == 'push' && (contains(fromJson('["refs/heads/doc", "refs/heads/master"]'), github.ref))) || (github.event_name == 'workflow_dispatch')
+      uses: peaceiris/actions-gh-pages@v4
+      with:
+        github_token: ${{ secrets.GITHUB_TOKEN }}
+        publish_dir: ./docs/build/html
+        publish_branch: gh-pages
+        user_name: 'WEN Hao'
+        user_email: 'wenh06@gmail.com'

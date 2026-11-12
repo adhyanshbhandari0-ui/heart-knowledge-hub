@@ -1,0 +1,80 @@
+{
+  "profile": "tabular-data-package",
+  "name": "california-alw-county-availability-2026",
+  "title": "California Assisted Living Waiver County Availability Tracker 2026",
+  "description": "County-level participating-facility and licensed-capacity data for California's Medi-Cal Assisted Living Waiver, plus DHCS statewide enrollment and waitlist totals.",
+  "version": "2026.1",
+  "homepage": "https://californiacarecompass.com/data/california-alw-county-tracker-2026",
+  "licenses": [
+    {
+      "name": "CC-BY-4.0",
+      "path": "https://creativecommons.org/licenses/by/4.0/",
+      "title": "Creative Commons Attribution 4.0"
+    }
+  ],
+  "contributors": [
+    {
+      "title": "California Care Compass",
+      "path": "https://californiacarecompass.com/",
+      "role": "publisher"
+    }
+  ],
+  "sources": [
+    {
+      "title": "DHCS Assisted Living Waiver participating facilities",
+      "path": "https://gis.dhcs.ca.gov/datasets/CADHCS::alw-assisted-living-facilities/about"
+    },
+    {
+      "title": "DHCS Assisted Living Waiver enrollment and waitlist report",
+      "path": "https://www.dhcs.ca.gov/services/ltc/Documents/ALW-Enrollment-and-Waitlist.pdf"
+    }
+  ],
+  "resources": [
+    {
+      "name": "california-alw-county-tracker-2026",
+      "path": "california-alw-county-tracker-2026.csv",
+      "profile": "tabular-data-resource",
+      "format": "csv",
+      "mediatype": "text/csv",
+      "encoding": "utf-8",
+      "schema": {
+        "fields": [
+          { "name": "county", "type": "string" },
+          { "name": "alw_available", "type": "string", "constraints": { "enum": ["yes"] } },
+          { "name": "participating_facilities", "type": "integer" },
+          { "name": "licensed_capacity_peu", "type": "integer" },
+          { "name": "statewide_enrolled", "type": "integer" },
+          { "name": "statewide_waitlist", "type": "integer" },
+          { "name": "statewide_as_of", "type": "yearmonth" },
+          { "name": "source_access_date", "type": "date" }
+        ],
+        "primaryKey": "county"
+      }
+    },
+    {
+      "name": "california-alw-facilities-2026",
+      "path": "california-alw-facilities-2026.csv",
+      "profile": "tabular-data-resource",
+      "format": "csv",
+      "mediatype": "text/csv",
+      "encoding": "utf-8",
+      "schema": {
+        "fields": [
+          { "name": "provider_number", "type": "string" },
+          { "name": "legal_name", "type": "string" },
+          { "name": "business_name", "type": "string" },
+          { "name": "capacity_per_peu", "type": "integer" },
+          { "name": "address", "type": "string" },
+          { "name": "address_2", "type": "string" },
+          { "name": "city", "type": "string" },
+          { "name": "county", "type": "string" },
+          { "name": "zip_code", "type": "string" },
+          { "name": "phone_number", "type": "string" },
+          { "name": "latitude", "type": "number" },
+          { "name": "longitude", "type": "number" },
+          { "name": "source_access_date", "type": "date" }
+        ]
+      }
+    }
+  ]
+}

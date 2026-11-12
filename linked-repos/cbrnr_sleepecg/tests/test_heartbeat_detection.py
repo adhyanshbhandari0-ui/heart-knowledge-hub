@@ -1,0 +1,237 @@
+# © SleepECG developers
+#
+# License: BSD (3-clause)
+
+"""Tests for heartbeat detection."""
+
+import sys
+
+import numpy as np
+import pytest
+from scipy.signal import resample_poly
+
+from sleepecg import compare_heartbeats, detect_heartbeats, get_toy_ecg
+
+pytestmark = pytest.mark.c_extension
+ecg, fs = get_toy_ecg()
+y_true = detect_heartbeats(ecg, fs)  # 478 true peaks
+
+
+def f1_score(y_pred, y_true, max_distance=5):
+    """Calculate the F1-score."""
+    tp, fp, fn = compare_heartbeats(y_pred, y_true, max_distance=max_distance)
+    tp, fp, fn = len(tp), len(fp), len(fn)
+    f1 = tp / (tp + 0.5 * (fp + fn))
+    return f1
+
+
+def test_resampling():
+    """Test the impact of resampling on heartbeat detection."""
+    for fs_new in [72, 90, 120, 180, 360, 720, 1080, 3600]:
+        res = fs_new / fs
+        if fs_new < fs:
+            up = 1
+            down = 1 / res
+        else:
+            down = 1
+            up = res
+        ecg_res = resample_poly(ecg, up, down)
+        beats = detect_heartbeats(ecg_res, fs_new)
+        beats = np.round(beats / res).astype(int)
+        f1 = f1_score(beats, y_true)
+        assert f1 > 0.95, "F1-score after resampling to {fs_new} Hz is below 0.90."
+
+
+def test_rescaling():
+    """Test the impact of rescaling on heartbeat detection."""
+    for scale in np.logspace(-4, 4, 9):
+        beats = detect_heartbeats(ecg * scale, fs)
+        f1 = f1_score(beats, y_true)
+        assert f1 == 1, "F1-score after rescaling by {scale} is not 1."
+
+
+def test_flat_data():
+    """Test the impact of flat data on heartbeat detection."""
+    # Flat data at the beginning
+    ecg_pad_beginning = np.pad(ecg, pad_width=(ecg.size, 0), mode="edge")
+    pks_beginning = detect_heartbeats(ecg_pad_beginning, fs)
+    assert f1_score(pks_beginning - ecg.size, y_true) == 1
+
+    # Flat data at the end
+    ecg_pad_end = np.pad(ecg, pad_width=(0, ecg.size), mode="edge")
+    pks_end = detect_heartbeats(ecg_pad_end, fs)
+    assert f1_score(pks_end, y_true) == 1
+
+    # Flat data in the middle
+    ecg_pad_middle = np.hstack((ecg_pad_end, ecg))
+    pks_middle = detect_heartbeats(ecg_pad_middle, fs)
+    assert abs(2 * len(y_true) - len(pks_middle)) < 50
+
+    # Entire recording is flat
+    with pytest.raises(ValueError):
+        detect_heartbeats(np.ones(10000), fs)
+
+    # ecg is empty
+    with pytest.raises(ValueError):
+        detect_heartbeats([], fs)
+
+
+def test_unsuccessful_searchback_scans_incrementally():
+    """Do not rescan an unusable interval after a failed searchback."""
+    from sleepecg.heartbeats import _thresholding_py
+
+    class CountingArray(np.ndarray):
+        def __new__(cls, values, counter):
+            array = np.asarray(values).view(cls)
+            array.counter = counter
+            return array
+
+        def __array_finalize__(self, source):
+            self.counter = getattr(source, "counter", [0])
+
+        def __getitem__(self, key):
+            if isinstance(key, int | np.integer):
+                self.counter[0] += 1
+            return super().__getitem__(key)
+
+    reads = [0]
+    unusable = CountingArray(-np.ones(500), reads)
+    beat_mask = _thresholding_py(unusable, unusable, fs=100.0)
+
+    assert not beat_mask.any()
+    assert reads[0] < 50_000
+
+
+@pytest.mark.parametrize("backend", ["c", "numba", "python"])
+def test_large_initial_artifact_does_not_stall(backend):
+    """Finish detection when an initial artifact makes later peaks undetectable."""
+    if backend == "numba":
+        pytest.importorskip("numba")
+
+    rng = np.random.default_rng(42)
+    unusable_ecg = rng.normal(scale=1e-6, size=1_000)
+    unusable_ecg[50] = 1e6
+
+    beats = detect_heartbeats(unusable_ecg, fs=100.0, backend=backend)
+
+    np.testing.assert_array_equal(beats, [50])
+
+
+def test_squared_moving_integration_args():
+    """Test squared moving window integration argument parsing."""
+    from sleepecg._heartbeat_detection import _squared_moving_integration
+
+    x = np.array([0, 0, 1, 1, 1, 1, 2, 2, 3, 3, 2, 2, 1, 1, 0, 0, 0, 0, 0, 0])
+    window_length = 10
+
+    _squared_moving_integration(x, window_length)
+    _squared_moving_integration(x=x, window_length=window_length)
+    _squared_moving_integration(x, window_length=window_length)
+    _squared_moving_integration(window_length=window_length, x=x)
+
+
+@pytest.mark.parametrize("window_length", [1, 4, 5, 20])
+def test_squared_moving_integration(window_length):
+    """Test squared moving window integration calculation."""
+    from sleepecg._heartbeat_detection import _squared_moving_integration
+
+    x = np.array([0, 0, 1, 1, 1, 1, 2, 2, 3, 3, 2, 2, 1, 1, 0, 0, 0, 0, 0, 0])
+
+    ref = np.convolve(x**2, np.ones(window_length), mode="same")
+    res = _squared_moving_integration(x, window_length)
+    assert np.allclose(ref, res)
+
+
+@pytest.mark.parametrize(
+    ["x", "window_length"],
+    [
+        ("thisisastring", 10),
+        (np.arange(20), 15.0),
+        (np.arange(20), 15.5),
+    ],
+)
+def test_squared_moving_integration_typechecks(x, window_length):
+    """Test squared moving window integration typechecks."""
+    from sleepecg._heartbeat_detection import _squared_moving_integration
+
+    with pytest.raises(TypeError):
+        _squared_moving_integration(x, window_length)
+
+
+@pytest.mark.parametrize(
+    ["x", "window_length"],
+    [
+        (np.arange(10), -5),
+        (np.arange(10), 0),
+        (np.arange(10), 21),
+        (np.array(5), 3),
+        (np.zeros((5, 5)), 3),
+    ],
+)
+def test_squared_moving_integration_valuechecks(x, window_length):
+    """Test squared moving window integration valuechecks."""
+    from sleepecg._heartbeat_detection import _squared_moving_integration
+
+    with pytest.raises(ValueError):
+        _squared_moving_integration(x, window_length)
+
+
+def test_thresholding_args():
+    """Test thresholding argument parsing."""
+    from sleepecg._heartbeat_detection import _thresholding
+
+    filtered_ecg = np.arange(100)
+    integrated_ecg = np.arange(100)
+    fs = 10
+
+    _thresholding(filtered_ecg, integrated_ecg, fs)
+    _thresholding(filtered_ecg, integrated_ecg, fs=fs)
+    _thresholding(filtered_ecg, integrated_ecg=integrated_ecg, fs=fs)
+    _thresholding(filtered_ecg=filtered_ecg, integrated_ecg=integrated_ecg, fs=fs)
+
+
+@pytest.mark.parametrize(
+    ["filtered_ecg", "integrated_ecg", "fs"],
+    [
+        ("thisisastring", np.arange(5), 10),
+        (np.arange(5), "thisisastring", 10),
+        (np.arange(5), np.arange(5), "thisisastring"),
+    ],
+)
+def test_thresholding_typechecks(filtered_ecg, integrated_ecg, fs):
+    """Test thresholding typechecks."""
+    from sleepecg._heartbeat_detection import _thresholding
+
+    filtered_ecg_refcount = sys.getrefcount(filtered_ecg)
+    integrated_ecg_refcount = sys.getrefcount(integrated_ecg)
+
+    with pytest.raises(TypeError):
+        _thresholding(filtered_ecg, integrated_ecg, fs)
+
+    assert sys.getrefcount(filtered_ecg) == filtered_ecg_refcount
+    assert sys.getrefcount(integrated_ecg) == integrated_ecg_refcount
+
+
+@pytest.mark.parametrize(
+    ["filtered_ecg", "integrated_ecg", "fs"],
+    [
+        (np.zeros((5, 5)), np.arange(5), 10),
+        (np.array(5), np.arange(5), 10),
+        (np.arange(5), np.zeros((5, 5)), 10),
+        (np.arange(5), np.array(5), 10),
+        (np.arange(5), np.arange(5), -5),
+        (np.arange(5), np.arange(5), 0),
+    ],
+)
+def test_thresholding_valuechecks(filtered_ecg, integrated_ecg, fs):
+    """Test thresholding valuechecks."""
+    from sleepecg._heartbeat_detection import _thresholding
+
+    filtered_ecg_refcount = sys.getrefcount(filtered_ecg)
+    integrated_ecg_refcount = sys.getrefcount(integrated_ecg)
+
+    with pytest.raises(ValueError):
+        _thresholding(filtered_ecg, integrated_ecg, fs)
+
+    assert sys.getrefcount(filtered_ecg) == filtered_ecg_refcount
+    assert sys.getrefcount(integrated_ecg) == integrated_ecg_refcount

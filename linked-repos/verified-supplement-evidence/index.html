@@ -1,0 +1,122 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Verified Supplement Evidence Database — open CC-BY-4.0 dataset</title>
+<meta name="description" content="Open, evidence-graded dataset of dietary-supplement clinical data: dosing, form/bioavailability, drug-nutrient interactions, population need, and cost-per-effective-dose product comparisons. Every clinical claim carries a PubMed PMID. CC BY 4.0, DOI 10.57967/hf/9356.">
+<link rel="canonical" href="https://erinheit451.github.io/verified-supplement-evidence/">
+<script type="application/ld+json">
+{
+  "@context": "https://schema.org/",
+  "@type": "Dataset",
+  "name": "Verified Supplement Evidence Database",
+  "description": "Open, evidence-graded dataset of dietary-supplement clinical data: dosing, form and bioavailability comparisons, medication-nutrient (drug-nutrient) interactions, population deficiency prevalence, and cost-per-effective-dose product comparisons across 7 linked CSV tables. Every clinical claim carries a PubMed PMID so it can be verified against the primary source. Compiled by Verified Supplement Data from NIH DSLD, PubMed, NHANES, FDA FAERS, NSF, and USP.",
+  "url": "https://erinheit451.github.io/verified-supplement-evidence/",
+  "sameAs": [
+    "https://huggingface.co/datasets/erinheit451/verified-supplement-evidence",
+    "https://www.kaggle.com/datasets/roses451/verified-supplement-evidence-database",
+    "https://github.com/erinheit451/verified-supplement-evidence",
+    "https://verifiedsupplementdata.com/data/"
+  ],
+  "identifier": "https://doi.org/10.57967/hf/9356",
+  "license": "https://creativecommons.org/licenses/by/4.0/",
+  "isAccessibleForFree": true,
+  "version": "1.0",
+  "keywords": [
+    "dietary supplements",
+    "clinical evidence",
+    "PubMed",
+    "bioavailability",
+    "drug-nutrient interactions",
+    "nutrition",
+    "cost-per-dose",
+    "NHANES",
+    "FAERS"
+  ],
+  "creator": {
+    "@type": "Organization",
+    "name": "Verified Supplement Data",
+    "url": "https://verifiedsupplementdata.com"
+  },
+  "distribution": [
+    {
+      "@type": "DataDownload",
+      "encodingFormat": "text/csv",
+      "name": "supplement-evidence-v1.csv",
+      "contentUrl": "https://raw.githubusercontent.com/erinheit451/verified-supplement-evidence/main/data/supplement-evidence-v1.csv"
+    },
+    {
+      "@type": "DataDownload",
+      "encodingFormat": "text/csv",
+      "name": "condition-ingredient-v1.csv",
+      "contentUrl": "https://raw.githubusercontent.com/erinheit451/verified-supplement-evidence/main/data/condition-ingredient-v1.csv"
+    },
+    {
+      "@type": "DataDownload",
+      "encodingFormat": "text/csv",
+      "name": "form-bioavailability-v1.csv",
+      "contentUrl": "https://raw.githubusercontent.com/erinheit451/verified-supplement-evidence/main/data/form-bioavailability-v1.csv"
+    },
+    {
+      "@type": "DataDownload",
+      "encodingFormat": "text/csv",
+      "name": "ingredient-master-v1.csv",
+      "contentUrl": "https://raw.githubusercontent.com/erinheit451/verified-supplement-evidence/main/data/ingredient-master-v1.csv"
+    },
+    {
+      "@type": "DataDownload",
+      "encodingFormat": "text/csv",
+      "name": "medication-depletion-v1.csv",
+      "contentUrl": "https://raw.githubusercontent.com/erinheit451/verified-supplement-evidence/main/data/medication-depletion-v1.csv"
+    },
+    {
+      "@type": "DataDownload",
+      "encodingFormat": "text/csv",
+      "name": "population-need-v1.csv",
+      "contentUrl": "https://raw.githubusercontent.com/erinheit451/verified-supplement-evidence/main/data/population-need-v1.csv"
+    },
+    {
+      "@type": "DataDownload",
+      "encodingFormat": "text/csv",
+      "name": "top-pick-by-category.csv",
+      "contentUrl": "https://raw.githubusercontent.com/erinheit451/verified-supplement-evidence/main/data/top-pick-by-category.csv"
+    }
+  ],
+  "creativeWorkStatus": "Published",
+  "citation": "Verified Supplement Data (2026). Verified Supplement Evidence Database (v1). CC BY 4.0. DOI: 10.57967/hf/9356."
+}
+</script>
+<style>
+  body{font:16px/1.6 -apple-system,Segoe UI,Roboto,sans-serif;max-width:760px;margin:2rem auto;padding:0 1rem;color:#1a2b2b}
+  a{color:#0E5A5E}
+  h1{font-size:1.6rem}
+  table{border-collapse:collapse;width:100%;font-size:.9rem}
+  td,th{border:1px solid #d5e0df;padding:.4rem .6rem;text-align:left}
+  code{background:#f0f5f4;padding:.1rem .3rem;border-radius:3px}
+</style>
+</head>
+<body>
+<h1>Verified Supplement Evidence Database</h1>
+<p>An open, evidence-graded dataset of dietary-supplement clinical data — dosing, form/bioavailability, drug–nutrient interactions, population need, and cost-per-effective-dose product comparisons. <strong>Every clinical claim carries a PubMed PMID.</strong></p>
+<p>License: <a href="https://creativecommons.org/licenses/by/4.0/">CC BY 4.0</a> · DOI: <a href="https://doi.org/10.57967/hf/9356">10.57967/hf/9356</a> · Maintained by <a href="https://verifiedsupplementdata.com">Verified Supplement Data</a></p>
+<h2>Get the data</h2>
+<ul>
+  <li><a href="https://github.com/erinheit451/verified-supplement-evidence">GitHub repository</a> (7 CSV tables + Croissant metadata)</li>
+  <li><a href="https://huggingface.co/datasets/erinheit451/verified-supplement-evidence">Hugging Face</a> · <a href="https://www.kaggle.com/datasets/roses451/verified-supplement-evidence-database">Kaggle</a></li>
+  <li><a href="https://verifiedsupplementdata.com/api/v1/recommend/index.json">Free JSON API</a> (no auth, CORS-open) · <a href="https://verifiedsupplementdata.com/methodology/">Methodology</a></li>
+</ul>
+<h2>Tables</h2>
+<table>
+<tr><th>File</th><th>Rows</th><th>Contents</th></tr>
+<tr><td>supplement-evidence-v1.csv</td><td>72</td><td>Product table: dose, cost/day, certification, evidence grade, PMIDs</td></tr>
+<tr><td>condition-ingredient-v1.csv</td><td>136</td><td>Ingredient → condition, evidence tier, dose, PMIDs</td></tr>
+<tr><td>form-bioavailability-v1.csv</td><td>38</td><td>Supplement forms: absorption verdict, clinical dose</td></tr>
+<tr><td>ingredient-master-v1.csv</td><td>26</td><td>Per-ingredient rollup: dose target, cost range, NHANES deficiency %, FAERS signal</td></tr>
+<tr><td>medication-depletion-v1.csv</td><td>20</td><td>Drug → nutrient depletion, severity, mechanism, PMIDs</td></tr>
+<tr><td>population-need-v1.csv</td><td>15</td><td>Population deficiency prevalence and mechanisms</td></tr>
+<tr><td>top-pick-by-category.csv</td><td>26</td><td>Editorial top pick per category by cost-per-effective-dose</td></tr>
+</table>
+<p><small>Citation: Verified Supplement Data (2026). <em>Verified Supplement Evidence Database</em> (v1). CC BY 4.0. DOI 10.57967/hf/9356.</small></p>
+</body>
+</html>

@@ -1,0 +1,354 @@
+# Author: Nicolas Legrand <nicolas.legrand@cfin.au.dk>
+
+import unittest
+from unittest import TestCase
+
+import numpy as np
+import pytest
+from numba.core.errors import TypingError
+
+from systole import import_dataset1, import_ppg, import_rr
+from systole.detection import ppg_peaks
+from systole.utils import (
+    find_clipping,
+    get_valid_segments,
+    heart_rate,
+    input_conversion,
+    nan_cleaning,
+    norm_bad_segments,
+    norm_triggers,
+    simulate_rr,
+    time_shift,
+    to_angles,
+    to_epochs,
+    to_neighbour,
+)
+
+
+class TestUtils(TestCase):
+    def test_to_neighbour(sef):
+        ppg = import_ppg().ppg.to_numpy().copy()[:200]  # Import PPG recording
+        peaks = np.zeros(len(ppg), dtype=bool)
+        peaks[50] = True
+
+        new_peaks = to_neighbour(signal=ppg, peaks=peaks)
+        assert np.where(new_peaks)[0] == 51
+        new_peaks = to_neighbour(signal=ppg, peaks=peaks, kind="min")
+        assert np.where(new_peaks)[0] == 1
+
+    def test_norm_triggers(self):
+        ppg = import_ppg().ppg.to_numpy().copy()  # Import PPG recording
+        _, peaks = ppg_peaks(ppg, sfreq=75)
+        peaks[np.where(peaks)[0] + 1] = 1
+        peaks[np.where(peaks)[0] + 2] = 1
+        peaks[-1:] = 1
+        y = norm_triggers(peaks)
+        assert sum(y) == 379
+        peaks = -peaks.astype(int)
+        y = norm_triggers(peaks, threshold=-1, direction="lower")
+        assert sum(y) == 379
+        with pytest.raises(TypingError):
+            norm_triggers(None)
+        with pytest.raises(ValueError):
+            norm_triggers(peaks, direction="invalid")
+
+    def test_heart_rate(self):
+        """Test heart_rate function"""
+        ppg = import_ppg().ppg.to_numpy().copy()  # Import PPG recording
+        _, peaks = ppg_peaks(ppg, sfreq=75)
+        heartrate, time = heart_rate(peaks)
+        assert len(heartrate) == len(time)
+        np.testing.assert_almost_equal(np.nanmean(heartrate), 884.92526408453)
+        heartrate, time = heart_rate(list(peaks))
+        assert len(heartrate) == len(time)
+        np.testing.assert_almost_equal(np.nanmean(heartrate), 884.92526408453)
+        heartrate, time = heart_rate(peaks, unit="bpm", kind="cubic", sfreq=500)
+        assert len(heartrate) == len(time)
+        np.testing.assert_almost_equal(np.nanmean(heartrate), 34.34558271737578)
+        with pytest.raises(ValueError):
+            heartrate, time = heart_rate([1, 2, 3])
+        heartrate, time = heart_rate(
+            np.diff(np.where(peaks)), kind="cubic", input_type="rr_ms"
+        )
+        np.testing.assert_almost_equal(np.nanmean(heartrate), 884.9253824912565)
+        heartrate, time = heart_rate(
+            np.diff(np.where(peaks)) / 1000, kind="cubic", input_type="rr_s"
+        )
+        np.testing.assert_almost_equal(np.nanmean(heartrate), 884.92526408453)
+
+    def test_heart_rate_sampling_frequency(self):
+        """The output must not depend on `sfreq` for interval-based inputs.
+
+        Regression test: `heart_rate` used to rescale every input by
+        `(rr / sfreq) * 1000`, which is only correct for the `peaks` and
+        `peaks_idx` types. Interval inputs are already expressed in time units,
+        so any `sfreq` other than 1000 silently scaled the heart rate by
+        `1000 / sfreq` (a true 60 bpm was reported as 30 bpm at 500 Hz).
+        """
+        # A perfectly regular 60 bpm signal: 12 intervals of exactly one second
+        rr_ms = np.array([1000.0] * 12)
+        rr_s = rr_ms / 1000
+
+        # Interval inputs at the default sampling frequency
+        for input_type, rr in (("rr_ms", rr_ms), ("rr_s", rr_s)):
+            bpm, time = heart_rate(rr, unit="bpm", kind="linear", input_type=input_type)
+            assert len(bpm) == len(time)
+            np.testing.assert_almost_equal(np.nanmean(bpm), 60.0)
+
+        # Interval inputs combined with another sampling frequency are ambiguous
+        # and must raise rather than silently rescale.
+        for input_type, rr in (("rr_ms", rr_ms), ("rr_s", rr_s)):
+            for sfreq in (100, 256, 500):
+                with pytest.raises(ValueError):
+                    heart_rate(rr, sfreq=sfreq, input_type=input_type)
+
+        # Peaks vectors do depend on `sfreq`, and must give 60 bpm at every rate
+        for sfreq in (100, 256, 500, 1000):
+            peaks = np.zeros(sfreq * 12, dtype=bool)
+            peaks[::sfreq] = True  # one beat per second
+            bpm, time = heart_rate(
+                peaks, sfreq=sfreq, unit="bpm", kind="linear", input_type="peaks"
+            )
+            np.testing.assert_almost_equal(np.nanmean(bpm), 60.0)
+
+            bpm, time = heart_rate(
+                np.where(peaks)[0],
+                sfreq=sfreq,
+                unit="bpm",
+                kind="linear",
+                input_type="peaks_idx",
+            )
+            np.testing.assert_almost_equal(np.nanmean(bpm), 60.0)
+
+    def test_to_epochs_rejected_length(self):
+        """`rejected` must hold one entry per trigger, whatever the baseline.
+
+        Regression test for #78: `rejected.append(False)` sat inside the
+        `else` branch of the baseline correction, so when `apply_baseline` was
+        explicitly set to `None` the accepted trials were never recorded. The
+        mask came back short and containing only `True`, which silently
+        misaligns any code indexing the epochs with it.
+        """
+        signal = np.arange(10000, dtype=float)
+        triggers_idx = np.array([1000, 2000, 3000, 4000, 5000])
+
+        # Mark one trial as containing an artefact so both outcomes are present
+        reject = np.zeros(10000, dtype=bool)
+        reject[2900:3100] = True
+
+        for apply_baseline in (0.0, (-1.0, 0.0), None):
+            epochs, rejected = to_epochs(
+                signal=signal,
+                triggers_idx=triggers_idx,
+                sfreq=1000,
+                tmin=-1.0,
+                tmax=1.0,
+                reject=reject,
+                apply_baseline=apply_baseline,
+            )
+            this_epochs, this_rejected = np.asarray(epochs[0]), np.asarray(rejected[0])
+
+            # One entry per trigger, and the kept trials line up with the epochs
+            assert len(this_rejected) == len(triggers_idx)
+            assert (~this_rejected).sum() == len(this_epochs)
+
+    def test_nan_cleaning_edge_cases(self):
+        """NaN interpolation must not mutate its input or fail obscurely.
+
+        Related to #59, which reported an error coming from `np.interp` during
+        peak detection. Three problems here: the interpolation wrote into the
+        caller's array, that failed outright on the read-only arrays pandas
+        returns under copy-on-write, and a signal that is entirely NaN reached
+        `np.interp` with no sample points and raised
+        "array of sample points is empty" rather than saying what was wrong.
+        """
+        signal = np.arange(100, dtype=float)
+        signal[10:20] = np.nan
+
+        # The caller's array must come back untouched
+        before = signal.copy()
+        nan_cleaning(signal, verbose=False)
+        np.testing.assert_array_equal(
+            np.nan_to_num(signal), np.nan_to_num(before)
+        )
+
+        # A read-only input must be accepted
+        read_only = signal.copy()
+        read_only.flags.writeable = False
+        cleaned = nan_cleaning(read_only, verbose=False)
+        assert not np.isnan(cleaned).any()
+
+        # A signal with nothing to interpolate from must say so
+        with pytest.raises(ValueError):
+            nan_cleaning(np.full(50, np.nan), verbose=False)
+
+    def test_input_conversion_accepts_floats(self):
+        """RR intervals in milliseconds are floats and must convert cleanly.
+
+        Regression test for the dtype point raised in #57. The `rr_ms` branch
+        indexed with `np.cumsum(x)` directly, so a float array -- the natural
+        dtype for intervals in milliseconds -- raised "arrays used as indices
+        must be of integer (or boolean) type". The `rr_s` branch already cast
+        for exactly this reason.
+        """
+        rr = np.array([800, 850, 900, 870, 820], dtype=float)
+
+        for dtype in (float, int):
+            for output_type in ("peaks", "peaks_idx", "rr_s"):
+                out = input_conversion(
+                    rr.astype(dtype), input_type="rr_ms", output_type=output_type
+                )
+                assert len(out) > 0
+
+        # The peaks vector must place one peak per interval, plus the first beat
+        peaks = input_conversion(rr, input_type="rr_ms", output_type="peaks")
+        assert peaks.sum() == len(rr) + 1
+
+    def test_time_shift(self):
+        """Test time_shift function"""
+        lag = time_shift([40, 50, 60], [45, 52])
+        assert np.all(lag == [5, 2])
+
+    def test_to_angle(self):
+        """Test to_angles function"""
+        rr = import_rr().rr.values.copy()
+        # Create event vector
+        events = rr + np.random.normal(500, 100, len(rr))
+        ang = to_angles(list(np.cumsum(rr)), list(np.cumsum(events)))
+        assert ~np.any(np.asarray(ang) < 0)
+        assert ~np.any(np.asarray(ang) > np.pi * 2)
+        ppg = import_ppg().ppg.to_numpy().copy()  # Import PPG recording
+        signal, peaks = ppg_peaks(ppg, sfreq=75)
+        ang = to_angles(peaks, peaks)
+
+    def test_to_epochs(self):
+        """Test ppg_peaks function"""
+        # Load dataset
+        ecg_df = import_dataset1(modalities=["ECG", "Stim"])
+
+        triggers_idx = [
+            np.where(ecg_df.stim.to_numpy() == 2)[0],
+            np.where(ecg_df.stim.to_numpy() == 1)[0],
+        ]
+        signal = ecg_df.ecg.to_numpy()
+
+        # Using event idx
+        epoch, rejected = to_epochs(signal=signal, triggers_idx=triggers_idx)
+        assert len(epoch) == 2
+        assert len(rejected) == 2
+        np.testing.assert_almost_equal(epoch[0].mean(), 0.047150987567323624)
+        assert rejected[0].mean() == 0.0
+
+        # Using event triggers
+        epoch, rejected = to_epochs(
+            signal=signal,
+            triggers=ecg_df.stim.to_numpy(),
+            event_val=2,
+            apply_baseline=(-1.0, 0.0),
+        )
+        np.testing.assert_almost_equal(epoch[0].mean(), 0.008389195914220333)
+        assert rejected[0].mean() == 0.0
+
+        # Using a rejection vector
+        reject = np.zeros(len(signal))
+        reject[768285:] = 1
+        epoch, rejected = to_epochs(
+            signal=signal,
+            triggers=ecg_df.stim.to_numpy(),
+            event_val=2,
+            apply_baseline=(-1.0, 0.0),
+            reject=reject,
+        )
+        assert len(epoch[0]) == 0
+        assert rejected[0].mean() == 1
+
+    def test_simulate_rr(self):
+        """Test ppg_peaks function"""
+        rr = simulate_rr(artefacts=True)
+        assert isinstance(rr, np.ndarray)
+        assert len(rr) == 350
+
+    def test_input_conversion(self):
+        """Test the input_conversion function"""
+        # Load example PPG signal
+        ppg = import_ppg().ppg.to_numpy().copy()
+        _, peaks = ppg_peaks(ppg, sfreq=75)
+
+        # input_type = "peaks"
+        rr_ms = input_conversion(peaks, input_type="peaks", output_type="rr_ms")
+        rr_s = input_conversion(peaks, input_type="peaks", output_type="rr_s")
+        peaks_idx = input_conversion(peaks, input_type="peaks", output_type="peaks_idx")
+        assert rr_ms.mean() == rr_s.mean() * 1000
+        assert rr_ms.mean() == np.diff(peaks_idx).mean()
+
+        # input_type = "peaks_idx"
+        pks_idx = np.where(peaks)[0]
+        rr_ms = input_conversion(pks_idx, input_type="peaks_idx", output_type="rr_ms")
+        rr_s = input_conversion(pks_idx, input_type="peaks_idx", output_type="rr_s")
+        pks = input_conversion(pks_idx, input_type="peaks_idx", output_type="peaks")
+        assert rr_ms.mean() == rr_s.mean() * 1000
+        assert rr_ms.mean() == np.diff(np.where(pks)[0]).mean()
+
+        # input_type = "rr_ms"
+        rr_ms = np.diff(np.where(peaks)[0])
+        pks = input_conversion(rr_ms, input_type="rr_ms", output_type="peaks")
+        rr_s = input_conversion(rr_ms, input_type="rr_ms", output_type="rr_s")
+        peaks_idx = input_conversion(rr_ms, input_type="rr_ms", output_type="peaks_idx")
+        assert np.diff(np.where(pks)[0]).mean() == rr_s.mean() * 1000
+        assert rr_s.mean() * 1000 == np.diff(peaks_idx).mean()
+
+        # input_type = "rr_s"
+        rr_s = np.diff(np.where(peaks)[0]) / 1000
+        pks = input_conversion(rr_s, input_type="rr_s", output_type="peaks")
+        rr_ms = input_conversion(rr_s, input_type="rr_s", output_type="rr_ms")
+        peaks_idx = input_conversion(rr_s, input_type="rr_s", output_type="peaks_idx")
+        assert np.diff(np.where(pks)[0]).mean() == rr_ms.mean()
+        assert rr_ms.mean() == np.diff(peaks_idx).mean()
+
+    def test_nan_cleaning(self):
+        ppg = import_ppg().ppg.to_list()
+        ppg[30] = np.nan
+        nan_cleaning(signal=np.array(ppg), verbose=True)
+
+    def test_find_clipping(self):
+        ppg = import_ppg().ppg.to_numpy().copy()
+
+        lower, upper = find_clipping(signal=ppg)
+        assert (lower, upper) == (0, 255)
+
+        # Create lower and upper clipping artefacts
+        ppg[ppg <= 50] = 50
+        ppg[ppg >= 230] = 230
+
+        lower, upper = find_clipping(signal=ppg)
+        assert (lower, upper) == (50, 230)
+
+        lower, upper = find_clipping(signal=ppg[:100])
+        assert (lower, upper) == (None, None)
+
+    def test_norm_bad_segments(self):
+        # Overlapping intervals
+        bad_segments = [(100, 200), (150, 250)]
+        new_segments = norm_bad_segments(bad_segments)
+        assert new_segments == [(100, 250)]
+
+        # A boolean vector
+        bool_bad_segments = np.zeros(100, dtype=bool)
+        bool_bad_segments[10:20] = True
+        bool_bad_segments[50:60] = True
+        new_segments = norm_bad_segments(bool_bad_segments)
+        assert new_segments == [(10, 20), (50, 60)]
+
+    def test_get_valid_segments(self):
+        signal = np.random.normal(size=1000)
+
+        bad_segments = [(500, 550), (700, 800)]
+        valids = get_valid_segments(signal=signal, bad_segments=bad_segments)
+
+        assert len(valids[0]) == 500
+        assert len(valids[1]) == 200
+        assert len(valids[2]) == 150
+
+
+if __name__ == "__main__":
+    unittest.main(argv=["first-arg-is-ignored"], exit=False)

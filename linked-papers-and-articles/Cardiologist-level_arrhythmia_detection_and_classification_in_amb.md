@@ -1,0 +1,56 @@
+# Cardiologist-level arrhythmia detection and classification in ambulatory electrocardiograms using a deep neural network
+
+**Source:** https://stanfordmlgroup.github.io/projects/ecg2
+
+---
+
+Cardiologist-level arrhythmia detection and classification in ambulatory electrocardiograms using a deep neural network
+
+Awni Y. Hannun *, Pranav Rajpurkar *, Masoumeh Haghpanahi *, Geoffrey H. Tison *, Codie Bourn, Mintu P. Turakhia, Andrew Y. Ng
+
+A collaboration between the Stanford Machine Learning Group and iRhythm Technologies
+
+We developed a deep neural network which can diagnose irregular heart rhythms, also known as arrhythmias, from single-lead ECG signals at a high diagnostic performance similar to that of cardiologists.
+
+The electrocardiogram (ECG) is a fundamental tool in the everyday practice of clinical medicine, with more than 300 million ECGs obtained annually worldwide, and is pivotal for diagnosing a wide spectrum of arrhythmias. In a study published in Nature Medicine , we developed a deep neural network
+to classify 10 arrhythmias as well as sinus rhythm and noise from a single-lead ECG signal, and compared its performance to that of cardiologists.
+
+Can you identify the heart arrhythmia in the above example? The neural network is able to correctly detect AVB_TYPE2. Below, you can see other rhythms which the neural network is successfully able to detect.
+
+We developed a 1D convolutional deep neural network to detect arrhythmias in arbitrary length ECG time-series.
+
+We developed a convolutional DNN to detect arrhythmias, which takes as input the raw ECG data (sampled at 200 Hz, or 200 samples per second) and outputs one prediction every 256 samples (or every 1.28 s), which we call the output interval. The network takes as input only the raw ECG samples and no other patient- or ECG-related features. The network architecture has 34 layers; to make the optimization of such a network tractable, we employed shortcut connections in a manner similar to the residual network architecture.
+
+Distinct from some other recent DNN approaches, no significant preprocessing of ECG data, such as Fourier or wavelet transforms, is needed to achieve strong classification performance.
+
+We constructed a large ECG dataset that underwent expert annotation for a broad range of ECG rhythm classes.
+
+Our dataset contained retrospective, de-identified data from 53,877 adult patients >18 years old who used the Zio monitor (iRhythm Technologies, Inc), which is a Food and Drug Administration (FDA)-cleared, single-lead, patch-based ambulatory ECG monitor that continuously records data from a single vector (modified Lead II) at 200Hz.
+
+ECG records were extracted based on the report summaries produced by iRhythm Technologies clinical workflow, which includes a full review by a certified ECG technician of initial annotations from an algorithm which is FDA 510(k) approved for clinical use. We randomly sampled patients exhibiting each rhythm; from these patients, we selected 30s records where the rhythm class was present. Although the targeted rhythm class was typically present within the record, most records contained a mix of multiple rhythms. To further improve the balance of classes in the training dataset, rare rhythms such as AVB, were intentionally oversampled.
+
+We compared the performance of the DNN and cardiologists on an independent test dataset.
+
+The test datast consisted of 328 ECG records collected from 328 unique patients, which was annotated by a consensus committee of expert cardiologists.
+
+In addition to a cardiologist consensus committee annotation, each ECG record in the test dataset received annotations from six separate individual cardiologists who were not part of the committee. Using the committee labels as the gold standard, we compared the DNN algorithm F1 score to the average individual cardiologist F1 score, which is the harmonic mean of the positive predictive value (PPV; precision) and sensitivity (recall). Cardiologist F1 scores were averaged over six individual cardiologists.
+
+Our DNN had a higher average F1 scores than cardiologists. The trend of DNN F1 scores tended to follow that of the averaged cardiologist F1 scores: both had lower F1 on similar classes, such as ventricular tachycardia and ectopic atrial rhythm (EAR).
+
+Fixing the specificity at the average specificity level achieved by cardiologists, the sensitivity of the DNN exceeded the average cardiologist sensitivity for all rhythm classes section.
+
+We found that the model met or exceeded the discriminative performance of the averaged cardiologist for all rhythm classes.
+
+We plotted receiver operating characteristic curves (ROCs) and precision-recall curves for the sequence-level analyses of rhythms: a few examples are shown. Individual cardiologist performance and averaged cardiologist performance are plotted on the same figure.
+
+We found that the DNN appears to recapitulate the misclassifications made by individual cardiologists.
+
+Manual review of the discordances revealed that the DNN misclassifications overall appear very reasonable. In many cases, the lack of context, limited signal duration, or having a single lead limited the conclusions that could reasonably be drawn from the data, making it difficult to definitively ascertain whether the committee and/or the algorithm was correct. Similar factors, as well as human error, may explain the inter-annotator agreement of 72.8%.
+
+The two confusion matrices exhibit a similar pattern, highlighting those rhythm classes that were generally more problematic to classify (that is, supraventricular tachycardia (SVT) versus atrial fibrillation, junctional versus sinus rhythm, and EAR versus sinus rhythm).
+
+We validated our DNN on an external dataset from a different patient population, and found that the model performed competitively.
+
+To demonstrate the generalizability of our DNN architecture to external data, we applied our DNN to the 2017 PhysioNet Challenge data, which contained four rhythm classes: sinus rhythm; atrial fibrillation; noise; and other. Keeping our DNN architecture fixed and without any other hyper-parameter tuning, we trained our DNN on  the publicly available training dataset (n = 8,528), holding out a 10% development dataset for early stopping. DNN performance on the hidden test dataset (n = 3,658) demonstrated overall F1 scores that were among those of the best performers from the competition, with a class average F1 of 0.83.
+
+These findings demonstrate that an end-to-end deep learning approach can classify a broad range of distinct arrhythmias from single-lead ECGs with high diagnostic performance similar to that of cardiologists. If confirmed in clinical settings, this approach could reduce the rate of misdiagnosed computerized ECG interpretations and improve the efficiency of expert human ECG interpretation by accurately triaging or prioritizing the most urgent conditions.

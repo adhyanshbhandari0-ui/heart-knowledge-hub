@@ -1,0 +1,23 @@
+cff-version: 1.2.0
+message: "If you use this dataset, please cite it using the metadata below."
+title: "California ALW County Availability Tracker 2026"
+version: "2026.1"
+date-released: 2026-05-30
+type: dataset
+authors:
+  - name: "California Care Compass"
+url: "https://californiacarecompass.com/data/california-alw-county-tracker-2026"
+repository-code: "https://github.com/asafichaki/california-alw-open-data"
+license: CC-BY-4.0
+keywords:
+  - Assisted Living Waiver
+  - Medi-Cal
+  - California
+  - senior care
+  - assisted living
+  - HCBS
+  - waitlist
+abstract: >-
+  County-level participating-facility and licensed-capacity data for
+  California's Assisted Living Waiver, with statewide enrollment and waitlist
+  totals published by the California Department of Health Care Services.

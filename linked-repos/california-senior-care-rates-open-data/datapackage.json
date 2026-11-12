@@ -1,0 +1,42 @@
+{
+  "profile": "tabular-data-package",
+  "name": "california-ihss-county-wages-2026",
+  "title": "California IHSS Individual Provider County Wage Rates 2026",
+  "description": "The 2026 hourly wage each of California's 58 counties pays an IHSS Individual Provider (an in-home caregiver funded through the Medi-Cal In-Home Supportive Services program), as approved by the California Department of Social Services. Government program wages, not private-pay prices.",
+  "version": "2026.2",
+  "homepage": "https://californiacarecompass.com/data/california-ihss-county-wages-2026",
+  "licenses": [
+    { "name": "CC-BY-4.0", "path": "https://creativecommons.org/licenses/by/4.0/", "title": "Creative Commons Attribution 4.0" }
+  ],
+  "contributors": [
+    { "title": "California Care Compass", "path": "https://californiacarecompass.com/", "role": "publisher" }
+  ],
+  "sources": [
+    { "title": "CDSS IHSS county wage rates (Individual Provider wages by county workbook)", "path": "https://www.cdss.ca.gov/inforesources/ihss/county-ihss-wage-rates" }
+  ],
+  "resources": [
+    {
+      "name": "california-ihss-county-wages-2026",
+      "path": "california-ihss-county-wages-2026.csv",
+      "profile": "tabular-data-resource",
+      "format": "csv",
+      "mediatype": "text/csv",
+      "encoding": "utf-8",
+      "schema": {
+        "fields": [
+          { "name": "county", "type": "string" },
+          { "name": "hourly_wage_usd", "type": "number", "description": "County-set IHSS Individual Provider hourly wage in USD." },
+          { "name": "wage_effective_date", "type": "date" },
+          { "name": "measure_type", "type": "string", "constraints": { "enum": ["provider_wage"] } },
+          { "name": "is_private_pay_price", "type": "boolean", "description": "Always false. These are government program wages, not private-pay prices." },
+          { "name": "source_name", "type": "string" },
+          { "name": "source_file_url", "type": "string", "format": "uri" },
+          { "name": "source_page_url", "type": "string", "format": "uri" },
+          { "name": "retrieved_at", "type": "datetime" },
+          { "name": "produced_by", "type": "string" }
+        ],
+        "primaryKey": "county"
+      }
+    }
+  ]
+}

@@ -1,0 +1,14 @@
+numpy
+pandas>=0.18.0
+scipy
+sklearn
+matplotlib
+mne
+bioread
+nolds
+biosppy
+Pillow
+cvxopt
+nose
+coverage
+pytest

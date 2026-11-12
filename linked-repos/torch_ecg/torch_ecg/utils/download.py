@@ -1,0 +1,874 @@
+"""
+utilities for downloading and extracting compressed data files
+
+For most PhysioNet databases, the WFDB package already has a method `dl_database`
+for downloading the data files.
+
+"""
+
+import collections
+import concurrent.futures
+import os
+import re
+import shlex
+import shutil
+import subprocess
+import tarfile
+import tempfile
+import time
+import urllib.parse
+import warnings
+import zipfile
+from pathlib import Path
+from typing import Any, Iterable, Literal, Optional, Tuple, Union
+
+import boto3
+import requests
+from botocore import UNSIGNED
+from botocore.client import Config
+from tqdm.auto import tqdm
+
+from .misc import str2bool
+
+__all__ = [
+    "http_get",
+]
+
+
+PHYSIONET_DB_VERSION_PATTERN = "\\d+\\.\\d+\\.\\d+"
+
+# number of retries and interval (in seconds) for downloads that the server
+# keeps replying 202 (Accepted) with an empty body, e.g. figshare portal domains
+_ASYNC_DOWNLOAD_RETRIES = 3
+_ASYNC_DOWNLOAD_RETRY_INTERVAL = 5.0
+
+
+def _requests_retry_session(
+    retries: int = 5,
+    backoff_factor: float = 0.5,
+    status_forcelist: Tuple[int, ...] = (429, 500, 502, 503, 504, 403),
+    session: Optional[requests.Session] = None,
+) -> requests.Session:
+    """Get a requests session with retry strategy.
+
+    Parameters
+    ----------
+    retries : int, default 5
+        Number of total retries to allow.
+    backoff_factor : float, default 0.5
+        A backoff factor to apply between attempts.
+        A backoff factor of 0.5 will sleep for [0.5s, 1s, 2s, ...] between retries.
+    status_forcelist : tuple, default (429, 500, 502, 503, 504, 403)
+        A set of HTTP status codes that we should force a retry on.
+    session : requests.Session, optional
+        An existing requests session.
+        If None, a new session will be created.
+
+    Returns
+    -------
+    requests.Session
+        A requests session with retry strategy.
+
+    """
+    session = session or requests.Session()
+    from requests.adapters import HTTPAdapter
+    from requests.packages.urllib3.util.retry import Retry  # type: ignore
+
+    retry = Retry(
+        total=retries,
+        read=retries,
+        connect=retries,
+        status=retries,
+        backoff_factor=backoff_factor,
+        status_forcelist=status_forcelist,
+        allowed_methods=frozenset(["HEAD", "GET", "OPTIONS"]),
+        raise_on_redirect=True,
+        raise_on_status=False,
+    )
+    adapter = HTTPAdapter(max_retries=retry)
+    session.mount("https://", adapter)
+    session.mount("http://", adapter)
+    return session
+
+
+def http_get(
+    url: str,
+    dst_dir: Union[str, bytes, os.PathLike],
+    proxies: Optional[dict] = None,
+    extract: Literal[True, False, "auto"] = "auto",
+    filename: Optional[str] = None,
+    *,
+    timeout: Union[Tuple[float, float], float] = (5.0, 60.0),
+    verify_length: bool = True,
+) -> Path:
+    """Download contents of a URL and save to a file.
+
+    This function is a modified version of the `download_file` function in
+    `transformers.file_utils` [1]_.
+
+    Parameters
+    ----------
+    url : str
+        URL to download file from.
+    dst_dir : `path-like`
+        Directory to save the file.
+        If `extract` is ``True``, the extracted content will be saved to `dst_dir`.
+    proxies : dict, optional
+        Dictionary of proxy settings.
+    extract : {True, False, "auto"}, default "auto"
+        Whether to extract the downloaded file.
+        "auto" will extract if the file is a `zip` file or a compressed `tar` file.
+    filename : str, optional
+        Name of the downloaded file.
+        If None, the filename will be the basename of the URL.
+        If `extract` is ``True``, the filename will NOT affect the extracted folder name,
+        which is set to `dst_dir`, and `filename` is only the downloaded file name.
+
+        .. versionadded:: 0.0.20
+    timeout : float or tuple, default (5.0, 60.0)
+        How many seconds to wait for the server to send data
+        before giving up, as a float, or a (connect timeout, read timeout) tuple.
+
+        .. versionadded:: 0.0.32
+    verify_length : bool, default True
+        Whether to verify the length of the downloaded file
+        with the `Content-Length` header in the HTTP response.
+
+        .. versionadded:: 0.0.32
+
+    Returns
+    -------
+    final_dst : pathlib.Path
+        Path to the downloaded file or the extracted folder.
+
+    References
+    ----------
+    .. [1] https://github.com/huggingface/transformers/blob/master/src/transformers/file_utils.py
+
+    """
+    Path(dst_dir).mkdir(parents=True, exist_ok=True)  # type: ignore
+    if filename is not None and (Path(dst_dir) / filename).exists():  # type: ignore
+        raise FileExistsError("file already exists")
+    url_parsed = urllib.parse.urlparse(url)
+    if url_parsed.scheme == "":
+        # assume https by default
+        url = f"https://{url}"
+        url_parsed = urllib.parse.urlparse(url)
+    if url_parsed.scheme not in ["http", "https", "s3"]:
+        raise ValueError(f"Unsupported URL scheme {url_parsed.scheme}")
+
+    assert extract in [True, False, "auto"], "extract must be True, False, or 'auto'."
+
+    if url_parsed.scheme == "s3":
+        if shutil.which("aws") is None:
+            # no AWS CLI on this machine; boto3 is a hard dependency, so
+            # keep downloading from S3 via the pure-Python backend
+            _download_from_aws_s3_using_boto3(url, dst_dir)
+        else:
+            _download_from_aws_s3_using_awscli(url, dst_dir)
+        return Path(dst_dir)  # type: ignore
+
+    if url_parsed.netloc == "www.dropbox.com" and url_parsed.query == "dl=0":
+        url_parsed = url_parsed._replace(query="dl=1")
+        url = url_parsed.geturl()
+    # for example "https://www.dropbox.com/s/xxx/test%3F.zip??dl=1"
+    # produces pure_url = "https://www.dropbox.com/s/xxx/test?.zip"
+    pure_url = urllib.parse.unquote(url_parsed._replace(query="").geturl())
+
+    if url_parsed.netloc == "drive.google.com":
+        assert filename is not None, "filename can not be inferred from Google Drive URL."
+    if extract == "auto":
+        # determine whether to extract based on the file extension
+        if filename is not None:
+            if is_compressed_file(filename):
+                extract = True
+            else:
+                extract = False
+        elif is_compressed_file(url_parsed.path):
+            extract = True
+        else:
+            extract = False
+
+    if url_parsed.netloc == "drive.google.com":
+        downloaded_file = tempfile.NamedTemporaryFile(
+            dir=dst_dir,
+            delete=False,
+        )
+        _download_from_google_drive(url, downloaded_file.name)
+        df_suffix = _suffix(filename)  # type: ignore
+        downloaded_file.close()
+    else:
+        print(f"Downloading {url}.")
+        if not is_compressed_file(url_parsed.path) and extract:
+            if filename is not None:
+                if not is_compressed_file(filename):
+                    warnings.warn(
+                        "filename is given, and it is not a `zip` file or a compressed `tar` file. "
+                        "Automatic decompression is turned off.",
+                        RuntimeWarning,
+                    )
+                    extract = False
+                else:
+                    pass
+            else:
+                warnings.warn(
+                    "URL must be pointing to a `zip` file or a compressed `tar` file. "
+                    "Automatic decompression is turned off. "
+                    "The user is responsible for decompressing the file manually.",
+                    RuntimeWarning,
+                )
+                extract = False
+        parent_dir = Path(dst_dir).parent  # type: ignore
+        df_suffix = _suffix(pure_url) if filename is None else _suffix(filename)
+        downloaded_file = tempfile.NamedTemporaryFile(
+            dir=parent_dir,
+            suffix=df_suffix,
+            delete=False,
+        )
+        # req = requests.get(url, stream=True, proxies=proxies)
+        session = _requests_retry_session()
+        try:
+            # some hosting services (e.g. figshare portal domains) put direct file
+            # URLs behind an asynchronous queue and reply 202 (Accepted) with an
+            # empty body; retry a few times before giving up
+            for _ in range(_ASYNC_DOWNLOAD_RETRIES + 1):
+                req = session.get(url, stream=True, proxies=proxies, timeout=timeout)
+                if req.status_code != 202:
+                    break
+                time.sleep(_ASYNC_DOWNLOAD_RETRY_INTERVAL)
+            try:
+                req.raise_for_status()
+            except Exception:
+                snippet = ""
+                try:
+                    # best effort: enrich the error with a body snippet;
+                    # the RuntimeError below is raised regardless
+                    snippet = req.text[:300]
+                except Exception:
+                    pass
+                raise RuntimeError(f"Failed to download {url}, status={req.status_code}, body[:300]={snippet!r}")
+            if req.status_code == 202:
+                raise RuntimeError(
+                    f"Failed to download {url}: the server keeps replying 202 (Accepted) with an empty body. "
+                    "This is typical of hosting services that queue downloads (e.g. figshare portal domains). "
+                    "Try a direct file URL instead, e.g. `ndownloader.figshare.com/files/...` "
+                    "instead of `<portal>.figshare.com/ndownloader/files/...`."
+                )
+
+            content_length = req.headers.get("Content-Length")
+            total = int(content_length) if content_length is not None else None
+            # when the target is expected to be an archive, an HTML response body
+            # usually indicates an error/interstitial page rather than real data,
+            # e.g. a bandwidth-limited or dead link on some file hosting services
+            if extract and req.headers.get("Content-Type", "").lower().startswith("text/html"):
+                snippet = ""
+                try:
+                    # best effort: enrich the error with a body snippet;
+                    # the RuntimeError below is raised regardless
+                    snippet = req.text[:300]
+                except Exception:
+                    pass
+                raise RuntimeError(
+                    f"Failed to download {url}: expected an archive file, but got an HTML page "
+                    f"(body[:300]={snippet!r}). This usually means the link is broken, expired, "
+                    "or rate-limited by the hosting service."
+                )
+            if str2bool(os.environ.get("CI")):
+                mininterval = 10.0
+                disable = True
+            else:
+                mininterval = 1.0
+                disable = False
+            progress = tqdm(
+                unit="B", unit_scale=True, total=total, dynamic_ncols=True, mininterval=mininterval, disable=disable
+            )
+            downloaded_size = 0
+            for chunk in req.iter_content(chunk_size=1024):
+                if chunk:  # filter out keep-alive new chunks
+                    progress.update(len(chunk))
+                    downloaded_file.write(chunk)
+                    downloaded_size += len(chunk)
+            progress.close()
+        finally:
+            session.close()
+        downloaded_file.close()
+
+        if downloaded_size == 0:
+            raise IOError(
+                f"Downloaded file from {url} is empty (0 bytes). " "The server probably did not serve the actual file content."
+            )
+        if verify_length and total is not None and downloaded_size != total:
+            raise IOError(f"Size mismatch for {url}. Expected {total} bytes, got {downloaded_size} bytes.")
+
+    # add a delay to avoid the error "process cannot access the file because it is being used by another process"
+    time.sleep(0.1)
+
+    if extract:
+        if ".zip" in df_suffix:
+            _unzip_file(str(downloaded_file.name), str(dst_dir))
+        # elif ".tar" in df_suffix:  # tar files
+        elif re.search("\\.(tar(\\.(gz|bz2|lz|xz|tz|zst))?|tgz|tbz2|tlz|txz|tzst)$", df_suffix) is not None:
+            _untar_file(str(downloaded_file.name), str(dst_dir))
+        else:
+            os.remove(downloaded_file.name)
+            raise Exception(f"Unsupported (compressed) archived file type {df_suffix}")
+        # avoid the case the compressed file is a folder with the same name
+        # DO NOT use _stem(Path(pure_url))
+        if filename is None:
+            _folder = Path(url).name.replace(_suffix(url), "")
+        else:
+            _folder = _stem(Path(filename))
+        if (Path(dst_dir) / _folder).exists():  # type: ignore
+            tmp_folder = str(dst_dir).rstrip(os.sep) + "_tmp"
+            # move (rename) the dst_dir to a temporary folder
+            os.rename(dst_dir, tmp_folder)
+            # move (rename) the extracted folder to the destination folder
+            os.rename(Path(tmp_folder) / _folder, dst_dir)
+            shutil.rmtree(tmp_folder)
+        final_dst = Path(dst_dir)  # type: ignore
+    else:
+        Path(dst_dir).mkdir(parents=True, exist_ok=True)  # type: ignore
+        if filename is None:
+            final_dst = Path(dst_dir) / Path(pure_url).name  # type: ignore
+        else:
+            final_dst = Path(dst_dir) / filename  # type: ignore
+        shutil.copyfile(downloaded_file.name, final_dst)
+    os.remove(downloaded_file.name)
+    return final_dst
+
+
+def _stem(path: Union[str, bytes, os.PathLike]) -> str:
+    """Get filename without extension, especially for .tar.xx files.
+
+    Parameters
+    ----------
+    path : `path-like`
+        Path to the file
+
+    Returns
+    -------
+    str
+        Filename without extension.
+
+    """
+    if isinstance(path, bytes):
+        path = path.decode()
+    ret = Path(path).stem  # type: ignore
+    if Path(ret).suffix in [".tar", ".gz", ".tz", ".lz", ".bz2", ".xz", ".zip", ".7z"]:
+        return _stem(ret)
+    return ret
+
+
+def _suffix(path: Union[str, bytes, os.PathLike], ignore_pattern: str = PHYSIONET_DB_VERSION_PATTERN) -> str:
+    """Get file extension, including all suffixes.
+
+    Parameters
+    ----------
+    path : `path-like`
+        Path to the file.
+    ignore_pattern : str, optional
+        Pattern to ignore in the filename,
+        by default `PHYSIONET_DB_VERSION_PATTERN`.
+
+    Returns
+    -------
+    str
+        The full file extension.
+
+    """
+    return "".join(Path(re.sub(ignore_pattern, "", str(path))).suffixes)
+
+
+def is_compressed_file(path: Union[str, bytes, os.PathLike]) -> bool:
+    """Check if the path points to a valid compressed file.
+
+    NOTE: a `.pth.tar` file is NOT considered a compressed file.
+
+    Parameters
+    ----------
+    path : `path-like`
+        Path to the file
+
+    Returns
+    -------
+    bool
+        True if the file is a valid compressed file,
+        False otherwise.
+
+    """
+    # compressed_file_pattern = "(\\.zip)|(\\.tar)"
+    compressed_file_pattern = "^(?!.*\\.pth\\.tar$).*\\.(zip|7z|tar(\\.(gz|bz2|lz|xz|tz|zst))?|tgz|tbz2|tlz|txz|tzst)$"
+    return re.search(compressed_file_pattern, _suffix(path)) is not None
+
+
+def _unzip_file(path_to_zip_file: Union[str, bytes, os.PathLike], dst_dir: Union[str, bytes, os.PathLike]) -> None:
+    """Unzips a .zip file to folder path.
+
+    Parameters
+    ----------
+    path_to_zip_file : `path-like`
+        Path to the .zip file.
+    dst_dir : `path-like`
+        Path to the destination folder.
+
+    Returns
+    -------
+    None
+
+    """
+    print(f"Extracting file {path_to_zip_file} to {dst_dir}.")
+    with zipfile.ZipFile(str(path_to_zip_file)) as zip_ref:
+        zip_ref.extractall(str(dst_dir))
+
+
+def _untar_file(path_to_tar_file: Union[str, bytes, os.PathLike], dst_dir: Union[str, bytes, os.PathLike]) -> None:
+    """Decompress a .tar.xx file to folder path.
+
+    Parameters
+    ----------
+    path_to_tar_file : `path-like`
+        Path to the .tar.xx file.
+    dst_dir : `path-like`
+        Path to the destination folder.
+
+    Returns
+    -------
+    None
+
+    """
+    print(f"Extracting file {path_to_tar_file} to {dst_dir}.")
+    mode = Path(path_to_tar_file).suffix.replace(".", "r:").replace("tar", "").strip(":")  # type: ignore
+    with tarfile.open(str(path_to_tar_file), mode) as tar_ref:  # type: ignore
+        # tar_ref.extractall(str(dst_dir))
+        # CVE-2007-4559 (related to  CVE-2001-1267):
+        # directory traversal vulnerability in `extract` and `extractall` in `tarfile` module
+        _safe_tar_extract(tar_ref, str(dst_dir))
+
+
+def _is_within_directory(directory: Union[str, bytes, os.PathLike], target: Union[str, bytes, os.PathLike]) -> bool:
+    """Check if the target is within the directory.
+
+    Parameters
+    ----------
+    directory : `path-like`
+        Directory to check.
+    target : `path-like`
+        Path to the target.
+
+    Returns
+    -------
+    bool
+        True if the target is within the directory,
+        False otherwise.
+
+    """
+    # `os.path.realpath` (not `abspath`) so that symlinks created by earlier
+    # members of the same archive are resolved as well; `commonpath` (not
+    # `commonprefix`) so that sibling directories like `/dst_evil` cannot
+    # bypass the check, which string-prefix comparison allowed.
+    abs_directory = os.path.realpath(directory)
+    abs_target = os.path.realpath(target)
+
+    return os.path.commonpath([abs_directory, abs_target]) == abs_directory
+
+
+def _ancestor_names(name: Union[str, bytes, os.PathLike]) -> set:
+    """Return the normalized ancestor directory names of a path, e.g.
+    ``"a/b/c"`` -> ``{"a", "a/b"}``."""
+    parts = Path(name).parts
+    return {os.path.normpath("/".join(parts[:i])) for i in range(1, len(parts))}
+
+
+def _safe_tar_extract(
+    tar: tarfile.TarFile,
+    dst_dir: Union[str, bytes, os.PathLike],
+    members: Optional[Iterable[tarfile.TarInfo]] = None,
+    *,
+    numeric_owner: bool = False,
+) -> None:
+    """Extract members from a tarfile **safely** to a destination directory.
+
+    This function prevents path traversal attacks, by checking that the
+    extracted files are within the destination directory.
+
+    Parameters
+    ----------
+    tar : tarfile.TarFile
+        The tarfile to extract from.
+    dst_dir : `path-like`
+        The destination directory
+    members : Iterable[tarfile.TarInfo], optional
+        The members to extract
+        If is None, extract all members,
+        otherwise, must be a subset of the list
+        returned by :func:`tar.getmembers`.
+    numeric_owner : bool, default False
+        If True, only the numbers for user/group names are used
+        and not the names. For more information,
+        see :func:`tarfile.TarFile.extractall`.
+
+    Returns
+    -------
+    None
+
+    """
+    members = list(members) if members else tar.getmembers()
+    link_member_names = {os.path.normpath(m.name) for m in members if m.issym() or m.islnk()}
+    for member in members:
+        member_path = os.path.join(dst_dir, member.name)  # type: ignore
+        if not _is_within_directory(dst_dir, member_path):
+            raise Exception("Attempted Path Traversal in Tar File")
+        # `extractall` creates members in order; a link member created earlier
+        # would make the current member be written through the link, possibly
+        # outside `dst_dir` (realpath of the not-yet-existing link cannot
+        # catch this in the check above), so refuse to extract through links
+        for ancestor in _ancestor_names(member.name):
+            if ancestor in link_member_names:
+                raise Exception(
+                    f"Attempted Path Traversal in Tar File " f"(member `{member.name}` extracted through link `{ancestor}`)"
+                )
+        # link members themselves must point inside the destination
+        if member.issym():
+            link_target = os.path.join(os.path.dirname(member_path), member.linkname)
+            if not _is_within_directory(dst_dir, link_target):
+                raise Exception(f"Attempted Path Traversal in Tar File (link `{member.name}` -> `{member.linkname}`)")
+        elif member.islnk():
+            # hardlink targets are member names, relative to the archive root
+            link_target = os.path.join(dst_dir, member.linkname)
+            if not _is_within_directory(dst_dir, link_target):
+                raise Exception(f"Attempted Path Traversal in Tar File (link `{member.name}` -> `{member.linkname}`)")
+
+    tar.extractall(dst_dir, members, numeric_owner=numeric_owner)
+
+
+def url_is_reachable(url: str, **kwargs: Any) -> bool:
+    """Check if a URL is reachable.
+
+    Parameters
+    ----------
+    url : str
+        The URL.
+    **kwargs : dict, optional
+        Additional keyword arguments to pass to :meth:`requests.head`.
+
+    Returns
+    -------
+    bool
+        Whether the URL is reachable.
+
+    """
+    try:
+        timeout = kwargs.pop("timeout", 3)
+        r = requests.head(url, timeout=timeout, **kwargs)
+        # successful responses and redirection messages
+        # https://developer.mozilla.org/en-US/docs/Web/HTTP/Status#information_responses
+        # Informational responses (100 – 199)
+        # Successful responses (200 – 299)
+        # Redirection messages (300 – 399)
+        # Client error responses (400 – 499)
+        # Server error responses (500 – 599)
+        return 100 <= r.status_code < 400
+    except Exception:
+        return False
+
+
+def _download_from_google_drive(url_or_id: str, output: Union[str, bytes, os.PathLike], quiet: bool = False) -> None:
+    """Download a file from Google Drive.
+
+    Parameters
+    ----------
+    url_or_id : str
+        The URL of the file or the file ID.
+    output : `path-like`
+        The output file path.
+    quiet : bool, default False
+        Whether to suppress the output.
+
+    Returns
+    -------
+    None
+
+    """
+    try:
+        import gdown
+    except (ImportError, ModuleNotFoundError):
+        raise ImportError("gdown is required to download from Google Drive.")
+    file_id_pattern = "^1[A-Za-z0-9-_]{32}$"
+    if re.match(file_id_pattern, url_or_id) is not None:
+        url_or_id = f"https://drive.google.com/u/0/uc?id={url_or_id}"
+    url_parsed = urllib.parse.urlparse(url_or_id)
+    if url_parsed.scheme == "" and url_parsed.netloc == "":
+        # no scheme is given, e.g. drive.google.com/file/d/xxx/view?usp=sharing
+        url_or_id = f"https://{url_or_id}"
+        url_parsed = urllib.parse.urlparse(url_or_id)
+    # remove trailing query string
+    url_or_id = re.sub("/view\\?.*$", "", url_or_id)
+    if re.match("^https://drive\\.google.com/file/d/", url_or_id) is not None:
+        url_or_id = re.sub(
+            "^https://drive\\.google\\.com/file/d/",
+            "https://drive.google.com/u/0/uc?id=",
+            url_or_id,
+        )
+        print(f"Redirecting to {url_or_id}")
+    gdown.download(url_or_id, str(output), quiet=quiet)
+
+
+def count_aws_s3_bucket(bucket_name: str, prefix: str = "") -> int:
+    """Count the number of objects in an AWS S3 bucket.
+
+    Parameters
+    ----------
+    bucket_name : str
+        The bucket name.
+    prefix : str, optional
+        The prefix to filter the objects,
+        for example, "ludb/1.0.1/".
+
+    Returns
+    -------
+    int
+        The number of objects in the bucket.
+
+    """
+    s3 = boto3.client("s3", config=Config(signature_version=UNSIGNED))
+    paginator = s3.get_paginator("list_objects_v2")
+    page_iterator = paginator.paginate(Bucket=bucket_name, Prefix=prefix)
+
+    object_count = 0
+    try:
+        for page in page_iterator:
+            if "Contents" in page:
+                object_count += len(page.get("Contents", []))
+    finally:
+        s3.close()
+
+    return object_count
+
+
+def get_latest_version_from_physionet_s3(db_name: str) -> str:
+    """Infer the latest published version of a PhysioNet database from the
+    layout of the ``s3://physionet-open`` bucket (anonymous listing of the
+    version prefixes under ``<db_name>/``).
+
+    This is a fallback for when the PhysioNet website is unreachable but the
+    S3 bucket (a separate endpoint) still is, so that :meth:`download` does
+    not silently fall back to an outdated version whose on-disk layout the
+    reader may not support (e.g. LUDB 1.0.0 vs 1.0.1).
+
+    Parameters
+    ----------
+    db_name : str
+        Name of the database, e.g. "ludb".
+
+    Returns
+    -------
+    str
+        The latest version string, e.g. "1.0.1".
+
+    """
+    s3 = boto3.client("s3", config=Config(signature_version=UNSIGNED))
+    paginator = s3.get_paginator("list_objects_v2")
+    page_iterator = paginator.paginate(Bucket="physionet-open", Prefix=f"{db_name}/", Delimiter="/")
+    versions = []
+    try:
+        for page in page_iterator:
+            for common_prefix in page.get("CommonPrefixes", []):
+                version = common_prefix["Prefix"].rstrip("/").rsplit("/", 1)[-1]
+                if re.fullmatch(r"v?\d+(\.\d+)*", version):
+                    versions.append(version.lstrip("v"))
+    finally:
+        s3.close()
+    if not versions:
+        raise ValueError(f"No version prefix found in s3://physionet-open/{db_name}/")
+    return max(versions, key=lambda v: [int(item) for item in v.split(".")])
+
+
+def _download_from_aws_s3_using_boto3(
+    url: str,
+    dst_dir: Union[str, bytes, os.PathLike],
+    max_workers: int = 8,
+) -> None:
+    """Download all objects under an S3 prefix using boto3 (pure Python).
+
+    Fallback of :func:`http_get` for ``s3://`` URLs when the `aws` CLI is
+    not on PATH (boto3 is already a hard dependency, so machines without
+    the AWS CLI still download from S3 instead of falling back to some
+    other host). Slower than ``aws s3 sync``, but downloads in a thread
+    pool and skips files that already exist locally with the same size,
+    so interrupted downloads resume where they stopped.
+
+    Parameters
+    ----------
+    url : str
+        The URL of the prefix ("directory"),
+        for example, "s3://bucket-name/pre/fix".
+    dst_dir : `path-like`
+        The output directory; keys are placed relative to the prefix,
+        mirroring ``aws s3 sync s3://bucket-name/pre/fix/ dst_dir``
+        (the prefix itself is stripped from the local paths).
+    max_workers : int, default 8
+        Number of concurrent download threads.
+
+    Returns
+    -------
+    None
+
+    """
+    pattern = "^s3://(?P<bucket_name>[^/]+)/(?P<prefix>.+)$"
+    match = re.match(pattern, url)
+    if match is None:
+        raise ValueError(f"Invalid S3 URL: {url}")
+    bucket_name = match.group("bucket_name")
+    prefix = match.group("prefix")
+    if prefix.startswith("files/"):
+        prefix = prefix[len("files/") :]
+
+    s3 = boto3.client(
+        "s3",
+        config=Config(
+            signature_version=UNSIGNED,
+            connect_timeout=10,
+            read_timeout=60,
+            retries={"max_attempts": 5, "mode": "adaptive"},
+        ),
+    )
+    paginator = s3.get_paginator("list_objects_v2")
+    # local paths are relative to the prefix root, mirroring
+    # `aws s3 sync s3://bucket/pre/fix/ dst_dir`; a prefix written without
+    # a trailing slash may still be a directory, so probe one object under
+    # "<prefix>/" -- if none exists it is a partial key prefix (e.g.
+    # ".../data/1.a" matching 1.avf, 1.avl, ...) and files are placed
+    # relative to its parent directory instead
+    if prefix.endswith("/"):
+        prefix_dir = prefix
+    else:
+        probe = paginator.paginate(Bucket=bucket_name, Prefix=prefix + "/", PaginationConfig={"MaxItems": 1})
+        if any(page.get("Contents") for page in probe):
+            prefix_dir = prefix + "/"
+        elif "/" in prefix:
+            prefix_dir = prefix.rsplit("/", 1)[0] + "/"
+        else:
+            prefix_dir = ""
+    strip = len(prefix_dir)
+    try:
+        objects = []
+        for page in paginator.paginate(Bucket=bucket_name, Prefix=prefix):
+            for obj in page.get("Contents", []):
+                if len(obj["Key"]) > strip:  # skip the prefix marker itself
+                    objects.append((obj["Key"][strip:], obj["Size"]))
+        if not objects:
+            raise ValueError(f"No objects found in S3 bucket: {bucket_name}, prefix: {prefix}")
+        print(f"Downloading from S3 bucket: {bucket_name}, prefix: {prefix}, total files: {len(objects)}")
+
+        dst_dir_path = Path(dst_dir)
+        dst_dir_path.mkdir(parents=True, exist_ok=True)
+
+        def _download_one(rel_path: str, expected_size: int) -> bool:
+            dst_file = dst_dir_path / rel_path
+            if dst_file.exists() and dst_file.stat().st_size == expected_size:
+                return False
+            dst_file.parent.mkdir(parents=True, exist_ok=True)
+            s3.download_file(bucket_name, prefix_dir + rel_path, str(dst_file))
+            return True
+
+        with concurrent.futures.ThreadPoolExecutor(max_workers=max_workers) as executor:
+            with tqdm(total=len(objects), dynamic_ncols=True, mininterval=1.0) as pbar:
+                futures = [executor.submit(_download_one, rel_path, size) for rel_path, size in objects]
+                for future in concurrent.futures.as_completed(futures):
+                    future.result()  # re-raise download errors
+                    pbar.update(1)
+    finally:
+        s3.close()
+
+
+def _download_from_aws_s3_using_awscli(
+    url: str,
+    dst_dir: Union[str, bytes, os.PathLike],
+    *,
+    show_progress: bool = True,
+    env: Optional[dict] = None,
+) -> None:
+    """Download a file from AWS S3 using awscli.
+
+    Parameters
+    ----------
+    url : str
+        The URL of the file.
+        For example, "s3://bucket-name/files/pre-fix".
+    dst_dir : `path-like`
+        The output directory.
+    show_progress : bool, default True
+        Whether to display tqdm progress bar.
+    env : dict, optional
+        Custom environment.
+
+    Returns
+    -------
+    None
+
+    """
+    if shutil.which("aws") is None:
+        raise RuntimeError("AWS cli is required to download from S3 (please install AWS CLI v2).")
+
+    pattern = "^s3://(?P<bucket_name>[^/]+)/(?P<prefix>.+)$"
+    match = re.match(pattern, url)
+    if match is None:
+        raise ValueError(f"Invalid S3 URL: {url}")
+
+    bucket_name = match.group("bucket_name")
+    prefix = match.group("prefix")
+    if prefix.startswith("files/"):
+        prefix = prefix[len("files/") :]
+    total_files = count_aws_s3_bucket(bucket_name, prefix)
+
+    if total_files == 0:
+        print(f"[S3 sync] No objects found at {bucket_name}/{prefix}, skipping.")
+        return
+
+    print(f"Downloading from S3 bucket: {bucket_name}, prefix: {prefix}, total files: {total_files}")
+
+    dst_dir = Path(dst_dir).expanduser().resolve()  # type: ignore
+    dst_dir.mkdir(parents=True, exist_ok=True)
+
+    if str2bool(os.environ.get("CI")):
+        mininterval = 10.0
+        disable = True
+    else:
+        mininterval = 1.0
+        disable = not show_progress
+    pbar = tqdm(total=total_files, dynamic_ncols=True, mininterval=mininterval, disable=disable)
+    download_count = 0
+    command = f"aws s3 sync --no-sign-request --only-show-errors {url} {shlex.quote(str(dst_dir))}"
+    process = subprocess.Popen(
+        shlex.split(command),
+        stdout=subprocess.PIPE,
+        stderr=subprocess.STDOUT,
+        bufsize=1,
+        text=True,
+        env=env if env is not None else os.environ.copy(),
+    )
+    debug_stdout = collections.deque(maxlen=50)
+    try:
+        assert process.stdout is not None  # for type checker
+        for line in process.stdout:
+            line = line.rstrip("\n")
+            debug_stdout.append(line)
+            if "download: s3://" in line:
+                download_count += 1
+                pbar.update(1)
+
+        retcode = process.wait()
+        if retcode != 0:
+            raise subprocess.CalledProcessError(
+                retcode,
+                command,
+                output="\n".join(debug_stdout),
+            )
+    finally:
+        if download_count < total_files:
+            pbar.update(total_files - download_count)
+        pbar.close()
+        if process.stdout and not process.stdout.closed:
+            process.stdout.close()
+
+    print(f"[S3 sync] Completed. Reported downloads: {download_count}/{total_files} (existing files are skipped silently).")
