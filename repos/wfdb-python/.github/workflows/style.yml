@@ -1,0 +1,25 @@
+name: Style Check
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+    branches:
+      - main
+
+jobs:
+  style:
+    name: Style Check
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: astral-sh/setup-uv@v10.3.3
+      - name: Install Python
+        run: uv python install 3.11
+      - name: Check style
+        run: |
+          uv run ruff format --check --diff .
+          uv run ruff check .
+      - name: Check changelog entries
+        run: uv run towncrier build --draft > /dev/null

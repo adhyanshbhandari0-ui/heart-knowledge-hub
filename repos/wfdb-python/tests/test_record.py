@@ -1,0 +1,1788 @@
+import datetime
+import os
+
+import numpy as np
+import pandas as pd
+import pytest
+
+import wfdb
+
+
+class TestRecord:
+    """Test read and write of single segment WFDB records, including streaming.
+
+    Target files created using the original WFDB Software Package
+    version 10.5.24
+
+    """
+
+    wrsamp_params = [
+        "record_name",
+        "fs",
+        "units",
+        "sig_name",
+        "p_signal",
+        "d_signal",
+        "e_p_signal",
+        "e_d_signal",
+        "samps_per_frame",
+        "fmt",
+        "adc_gain",
+        "baseline",
+        "comments",
+        "base_time",
+        "base_date",
+        "base_datetime",
+    ]
+
+    # ------------------------ 1. Basic Tests ------------------------ #
+
+    def test_1a(self, source, temp_path):
+        """Format 16, entire signal, digital.
+
+        Target file created with:
+            rdsamp -r sample-data/test01_00s | cut -f 2- > record-1a
+        """
+        record = wfdb.rdrecord("sample-data/test01_00s", physical=False, return_res=16)
+        sig = record.d_signal
+        sig_target = np.genfromtxt("tests/target-output/record-1a")
+
+        # Compare data streaming from Physionet
+        if source == "physionet":
+            record_pn = wfdb.rdrecord(
+                "test01_00s", pn_dir="macecgdb", physical=False, return_res=16
+            )
+
+        # Test file writing
+        record_2 = wfdb.rdrecord(
+            "sample-data/test01_00s", physical=False, return_res=16
+        )
+        record_2.sig_name = ["ECG_1", "ECG_2", "ECG_3", "ECG_4"]
+        record_2.wrsamp(write_dir=temp_path)
+        record_write = wfdb.rdrecord(
+            os.path.join(temp_path, "test01_00s"),
+            physical=False,
+            return_res=16,
+        )
+
+        assert np.array_equal(sig, sig_target)
+        if source == "physionet":
+            assert record.__eq__(record_pn)
+        assert record_2.__eq__(record_write)
+
+    def test_1b(self, source):
+        """Format 16, byte offset, selected duration, selected channels, physical.
+
+        Target file created with:
+            rdsamp -r sample-data/a103l -f 50 -t 160 -s 2 0 -P | cut -f 2- > record-1b
+        """
+        sig, fields = wfdb.rdsamp(
+            "sample-data/a103l", sampfrom=12500, sampto=40000, channels=[2, 0]
+        )
+        sig_round = np.round(sig, decimals=8)
+        sig_target = np.genfromtxt("tests/target-output/record-1b")
+
+        # Compare data streaming from Physionet
+        if source == "physionet":
+            sig_pn, fields_pn = wfdb.rdsamp(
+                "a103l",
+                pn_dir="challenge-2015/training",
+                sampfrom=12500,
+                sampto=40000,
+                channels=[2, 0],
+            )
+
+        # Option of selecting channels by name
+        sig_named, fields_named = wfdb.rdsamp(
+            "sample-data/a103l",
+            sampfrom=12500,
+            sampto=40000,
+            channel_names=["PLETH", "II"],
+        )
+
+        assert np.array_equal(sig_round, sig_target)
+        if source == "physionet":
+            assert np.array_equal(sig, sig_pn) and fields == fields_pn
+        assert np.array_equal(sig, sig_named) and fields == fields_named
+
+    def test_1c(self, source, temp_path):
+        """Format 16, byte offset, selected duration and channels, digital, expanded.
+
+        Target file created with:
+            rdsamp -r sample-data/a103l -f 80 -s 0 1 | cut -f 2- > record-1c
+        """
+        record = wfdb.rdrecord(
+            "sample-data/a103l",
+            sampfrom=20000,
+            channels=[0, 1],
+            physical=False,
+            smooth_frames=False,
+        )
+        # convert expanded to uniform array
+        sig = np.zeros((record.sig_len, record.n_sig))
+        for i in range(record.n_sig):
+            sig[:, i] = record.e_d_signal[i]
+
+        sig_target = np.genfromtxt("tests/target-output/record-1c")
+
+        # Compare data streaming from Physionet
+        if source == "physionet":
+            record_pn = wfdb.rdrecord(
+                "a103l",
+                pn_dir="challenge-2015/training",
+                sampfrom=20000,
+                channels=[0, 1],
+                physical=False,
+                smooth_frames=False,
+            )
+
+        # Test file writing
+        record.wrsamp(write_dir=temp_path, expanded=True)
+        record_write = wfdb.rdrecord(
+            os.path.join(temp_path, "a103l"),
+            physical=False,
+            smooth_frames=False,
+        )
+
+        assert np.array_equal(sig, sig_target)
+        if source == "physionet":
+            assert record.__eq__(record_pn)
+        assert record.__eq__(record_write)
+
+    def test_1d(self, source):
+        """Format 80, selected duration, selected channels, physical
+
+        Target file created with:
+            rdsamp -r sample-data/3000003_0003 -f 1 -t 8 -s 1 -P | cut -f 2- > record-1d
+        """
+        sig, fields = wfdb.rdsamp(
+            "sample-data/3000003_0003", sampfrom=125, sampto=1000, channels=[1]
+        )
+        sig_round = np.round(sig, decimals=8)
+        sig_target = np.genfromtxt("tests/target-output/record-1d")
+        sig_target = sig_target.reshape(len(sig_target), 1)
+
+        # Compare data streaming from Physionet
+        if source == "physionet":
+            sig_pn, fields_pn = wfdb.rdsamp(
+                "3000003_0003",
+                pn_dir="mimic3wdb/30/3000003/",
+                sampfrom=125,
+                sampto=1000,
+                channels=[1],
+            )
+
+        assert np.array_equal(sig_round, sig_target)
+        if source == "physionet":
+            assert np.array_equal(sig, sig_pn) and fields == fields_pn
+
+    def test_1e(self, source, temp_path):
+        """Format 24, entire signal, digital.
+
+        Target file created with:
+            rdsamp -r sample-data/n8_evoked_raw_95_F1_R9 | cut -f 2- |
+            gzip -9 -n > record-1e.gz
+        """
+        record = wfdb.rdrecord("sample-data/n8_evoked_raw_95_F1_R9", physical=False)
+        sig = record.d_signal
+        sig_target = np.genfromtxt("tests/target-output/record-1e.gz")
+        sig_target[sig_target == -32768] = -(2**23)
+
+        # Compare data streaming from Physionet
+        if source == "physionet":
+            record_pn = wfdb.rdrecord(
+                "n8_evoked_raw_95_F1_R9", physical=False, pn_dir="earndb/raw/N8"
+            )
+
+        # Test file writing
+        record_2 = wfdb.rdrecord("sample-data/n8_evoked_raw_95_F1_R9", physical=False)
+        record_2.wrsamp(write_dir=temp_path)
+        record_write = wfdb.rdrecord(
+            os.path.join(temp_path, "n8_evoked_raw_95_F1_R9"),
+            physical=False,
+        )
+
+        assert np.array_equal(sig, sig_target)
+        if source == "physionet":
+            assert record.__eq__(record_pn)
+        assert record_2.__eq__(record_write)
+
+    def test_1f(self, temp_path):
+        """All binary formats, multiple signal files in one record.
+
+        Target file created with:
+            rdsamp -r sample-data/binformats | cut -f 2- |
+            gzip -9 -n > record-1f.gz
+        """
+        record = wfdb.rdrecord("sample-data/binformats", physical=False)
+        sig_target = np.genfromtxt("tests/target-output/record-1f.gz")
+
+        for n, name in enumerate(record.sig_name):
+            np.testing.assert_array_equal(
+                record.d_signal[:, n], sig_target[:, n], "Mismatch in %s" % name
+            )
+
+        for sampfrom in range(0, 3):
+            for sampto in range(record.sig_len - 3, record.sig_len):
+                record_2 = wfdb.rdrecord(
+                    "sample-data/binformats",
+                    physical=False,
+                    sampfrom=sampfrom,
+                    sampto=sampto,
+                )
+                for n, name in enumerate(record.sig_name):
+                    if record.fmt[n] != "8":
+                        np.testing.assert_array_equal(
+                            record_2.d_signal[:, n],
+                            sig_target[sampfrom:sampto, n],
+                            "Mismatch in %s" % name,
+                        )
+
+        # Test writing all supported formats.  (Currently not all signal
+        # formats are supported for output; keep this list in sync with
+        # 'wr_dat_file' in src/wfdb/io/_signal.py.)
+        OUTPUT_FMTS = ["80", "212", "16", "24", "32"]
+        channels = []
+        for i, fmt in enumerate(record.fmt):
+            if fmt in OUTPUT_FMTS:
+                channels.append(i)
+
+        partial_record = wfdb.rdrecord(
+            "sample-data/binformats",
+            physical=False,
+            channels=channels,
+        )
+        partial_record.wrsamp(write_dir=temp_path)
+        converted_record = wfdb.rdrecord(
+            os.path.join(temp_path, "binformats"),
+            physical=False,
+        )
+        assert partial_record == converted_record
+
+    def test_read_write_flac(self, temp_path):
+        """All FLAC formats, multiple signal files in one record.
+
+        Target file created with:
+            rdsamp -r sample-data/flacformats | cut -f 2- |
+            gzip -9 -n > record-flac.gz
+        """
+        record = wfdb.rdrecord("sample-data/flacformats", physical=False)
+        sig_target = np.genfromtxt("tests/target-output/record-flac.gz")
+
+        for n, name in enumerate(record.sig_name):
+            np.testing.assert_array_equal(
+                record.d_signal[:, n], sig_target[:, n], f"Mismatch in {name}"
+            )
+
+        for sampfrom in range(0, 3):
+            for sampto in range(record.sig_len - 3, record.sig_len):
+                record_2 = wfdb.rdrecord(
+                    "sample-data/flacformats",
+                    physical=False,
+                    sampfrom=sampfrom,
+                    sampto=sampto,
+                )
+                for n, name in enumerate(record.sig_name):
+                    np.testing.assert_array_equal(
+                        record_2.d_signal[:, n],
+                        sig_target[sampfrom:sampto, n],
+                        f"Mismatch in {name}",
+                    )
+
+        # Test file writing
+        record.wrsamp(write_dir=temp_path)
+        record_write = wfdb.rdrecord(
+            os.path.join(temp_path, "flacformats"),
+            physical=False,
+        )
+        assert record == record_write
+
+    def test_read_write_flac_multifrequency(self, temp_path):
+        """Format 516 with multiple signal files and variable samples per frame."""
+        # Check that we can read a record and write it out again
+        record = wfdb.rdrecord(
+            "sample-data/mixedsignals",
+            physical=False,
+            smooth_frames=False,
+        )
+        record.wrsamp(write_dir=temp_path, expanded=True)
+
+        # Check that result matches the original
+        record = wfdb.rdrecord("sample-data/mixedsignals", smooth_frames=False)
+        record_write = wfdb.rdrecord(
+            os.path.join(temp_path, "mixedsignals"),
+            smooth_frames=False,
+        )
+        assert record == record_write
+
+    def test_unique_samps_per_frame_e_p_signal(self, temp_path):
+        """Test writing an e_p_signal with wfdb.io.wrsamp.
+
+        The signals have different samples per frame. All other parameters which overlap
+        between a Record object and wfdb.io.wrsamp are also checked.
+        """
+        # Read in a record with different samples per frame
+        record = wfdb.rdrecord(
+            "sample-data/mixedsignals",
+            smooth_frames=False,
+        )
+
+        # Write the signals
+        wfdb.io.wrsamp(
+            "mixedsignals",
+            fs=record.fs,
+            units=record.units,
+            sig_name=record.sig_name,
+            base_date=record.base_date,
+            base_time=record.base_time,
+            comments=record.comments,
+            p_signal=record.p_signal,
+            d_signal=record.d_signal,
+            e_p_signal=record.e_p_signal,
+            e_d_signal=record.e_d_signal,
+            samps_per_frame=record.samps_per_frame,
+            baseline=record.baseline,
+            adc_gain=record.adc_gain,
+            fmt=record.fmt,
+            write_dir=temp_path,
+        )
+
+        # Check that the written record matches the original
+        # Read in the original and written records
+        record = wfdb.rdrecord("sample-data/mixedsignals", smooth_frames=False)
+        record_write = wfdb.rdrecord(
+            os.path.join(temp_path, "mixedsignals"),
+            smooth_frames=False,
+        )
+
+        # Check that the signals match
+        for n, name in enumerate(record.sig_name):
+            np.testing.assert_array_equal(
+                record.e_p_signal[n],
+                record_write.e_p_signal[n],
+                f"Mismatch in {name}",
+            )
+
+        # Filter out the signal
+        record_filtered = {
+            k: getattr(record, k)
+            for k in self.wrsamp_params
+            if not (
+                isinstance(getattr(record, k), np.ndarray)
+                or (
+                    isinstance(getattr(record, k), list)
+                    and all(isinstance(item, np.ndarray) for item in getattr(record, k))
+                )
+            )
+        }
+
+        record_write_filtered = {
+            k: getattr(record_write, k)
+            for k in self.wrsamp_params
+            if not (
+                isinstance(getattr(record_write, k), np.ndarray)
+                or (
+                    isinstance(getattr(record_write, k), list)
+                    and all(
+                        isinstance(item, np.ndarray)
+                        for item in getattr(record_write, k)
+                    )
+                )
+            )
+        }
+
+        # Check that the arguments beyond the signals also match
+        assert record_filtered == record_write_filtered
+
+    def test_unique_samps_per_frame_e_d_signal(self, temp_path):
+        """Test writing an e_d_signal with wfdb.io.wrsamp.
+
+        The signals have different samples per frame. All other parameters which overlap
+        between a Record object and wfdb.io.wrsamp are also checked.
+        """
+        # Read in a record with different samples per frame
+        record = wfdb.rdrecord(
+            "sample-data/mixedsignals",
+            physical=False,
+            smooth_frames=False,
+        )
+
+        # Write the signals
+        wfdb.io.wrsamp(
+            "mixedsignals",
+            fs=record.fs,
+            units=record.units,
+            sig_name=record.sig_name,
+            base_date=record.base_date,
+            base_time=record.base_time,
+            comments=record.comments,
+            p_signal=record.p_signal,
+            d_signal=record.d_signal,
+            e_p_signal=record.e_p_signal,
+            e_d_signal=record.e_d_signal,
+            samps_per_frame=record.samps_per_frame,
+            baseline=record.baseline,
+            adc_gain=record.adc_gain,
+            fmt=record.fmt,
+            write_dir=temp_path,
+        )
+
+        # Check that the written record matches the original
+        # Read in the original and written records
+        record = wfdb.rdrecord(
+            "sample-data/mixedsignals", physical=False, smooth_frames=False
+        )
+        record_write = wfdb.rdrecord(
+            os.path.join(temp_path, "mixedsignals"),
+            physical=False,
+            smooth_frames=False,
+        )
+
+        # Check that the signals match
+        for n, name in enumerate(record.sig_name):
+            np.testing.assert_array_equal(
+                record.e_d_signal[n],
+                record_write.e_d_signal[n],
+                f"Mismatch in {name}",
+            )
+
+        # Filter out the signal
+        record_filtered = {
+            k: getattr(record, k)
+            for k in self.wrsamp_params
+            if not (
+                isinstance(getattr(record, k), np.ndarray)
+                or (
+                    isinstance(getattr(record, k), list)
+                    and all(isinstance(item, np.ndarray) for item in getattr(record, k))
+                )
+            )
+        }
+
+        record_write_filtered = {
+            k: getattr(record_write, k)
+            for k in self.wrsamp_params
+            if not (
+                isinstance(getattr(record_write, k), np.ndarray)
+                or (
+                    isinstance(getattr(record_write, k), list)
+                    and all(
+                        isinstance(item, np.ndarray)
+                        for item in getattr(record_write, k)
+                    )
+                )
+            )
+        }
+
+        # Check that the arguments beyond the signals also match
+        assert record_filtered == record_write_filtered
+
+    def test_read_write_flac_many_channels(self, temp_path):
+        """Check we can read and write to format 516 with more than 8 channels."""
+        # Read in a signal with 12 channels in format 16
+        record = wfdb.rdrecord("sample-data/s0010_re", physical=False)
+
+        # Test that we can write out the signal in format 516
+        wfdb.wrsamp(
+            record_name="s0010_re_fmt516",
+            fs=record.fs,
+            units=record.units,
+            sig_name=record.sig_name,
+            fmt=["516"] * record.n_sig,
+            d_signal=record.d_signal,
+            adc_gain=record.adc_gain,
+            baseline=record.baseline,
+            write_dir=temp_path,
+        )
+
+        # Check that signal matches the original
+        record_fmt516 = wfdb.rdrecord(
+            os.path.join(temp_path, "s0010_re_fmt516"),
+            physical=False,
+        )
+        assert (record.d_signal == record_fmt516.d_signal).all()
+
+    def test_read_flac_longduration(self):
+        """Three signals multiplexed in a FLAC file, over 2**24 samples.
+
+        Input file created with:
+            yes 25 50 75 | head -5600000 |
+            wrsamp -O 508 -o flac_3_constant 0 1 2
+
+        Note that the total number of samples (across the three
+        channels) exceeds 2**24.  There is a bug in libsndfile that
+        causes it to break if we try to read more than 2**24 total
+        samples at a time, when the number of channels is not a power
+        of two.
+        """
+        record = wfdb.rdrecord("sample-data/flac_3_constant")
+        sig_target = np.repeat(
+            np.array([[0.125, 0.25, 0.375]], dtype="float64"),
+            5600000,
+            axis=0,
+        )
+        np.testing.assert_array_equal(record.p_signal, sig_target)
+
+    # ------------------ 2. Special format records ------------------- #
+
+    def test_2a(self, source):
+        """Format 212, entire signal, physical.
+
+        Target file created with:
+            rdsamp -r sample-data/100 -P | cut -f 2- > record-2a
+        """
+        sig, fields = wfdb.rdsamp("sample-data/100")
+        sig_round = np.round(sig, decimals=8)
+        sig_target = np.genfromtxt("tests/target-output/record-2a")
+
+        # Compare data streaming from Physionet
+        if source == "physionet":
+            sig_pn, fields_pn = wfdb.rdsamp("100", pn_dir="mitdb")
+        # This comment line was manually added and is not present in the
+        # original PhysioNet record
+        del fields["comments"][0]
+
+        assert np.array_equal(sig_round, sig_target)
+        if source == "physionet":
+            assert np.array_equal(sig, sig_pn) and fields == fields_pn
+
+    def test_2b(self, source, temp_path):
+        """Format 212, selected duration, selected channel, digital.
+
+        Target file created with:
+            rdsamp -r sample-data/100 -f 0.002 -t 30 -s 1 | cut -f 2- > record-2b
+        """
+        record = wfdb.rdrecord(
+            "sample-data/100",
+            sampfrom=1,
+            sampto=10800,
+            channels=[1],
+            physical=False,
+        )
+        sig = record.d_signal
+        sig_target = np.genfromtxt("tests/target-output/record-2b")
+        sig_target = sig_target.reshape(len(sig_target), 1)
+
+        # Compare data streaming from Physionet
+        if source == "physionet":
+            record_pn = wfdb.rdrecord(
+                "100",
+                sampfrom=1,
+                sampto=10800,
+                channels=[1],
+                physical=False,
+                pn_dir="mitdb",
+            )
+        # This comment line was manually added and is not present in the
+        # original PhysioNet record
+        del record.comments[0]
+
+        # Option of selecting channels by name
+        record_named = wfdb.rdrecord(
+            "sample-data/100",
+            sampfrom=1,
+            sampto=10800,
+            channel_names=["V5"],
+            physical=False,
+        )
+        del record_named.comments[0]
+
+        # Test file writing
+        record.wrsamp(write_dir=temp_path)
+        record_write = wfdb.rdrecord(
+            os.path.join(temp_path, "100"),
+            physical=False,
+        )
+
+        assert np.array_equal(sig, sig_target)
+        if source == "physionet":
+            assert record.__eq__(record_pn)
+        assert record.__eq__(record_named)
+        assert record.__eq__(record_write)
+
+    def test_wrsamp_physical_only_record(self, temp_path):
+        record = wfdb.rdrecord("sample-data/100", sampto=1000)
+        expected_d_signal = wfdb.rdrecord(
+            "sample-data/100", sampto=1000, physical=False
+        ).d_signal
+
+        assert record.d_signal is None
+
+        record.wrsamp(write_dir=temp_path)
+        record_write = wfdb.rdrecord(
+            os.path.join(temp_path, "100"),
+            physical=False,
+        )
+
+        np.testing.assert_array_equal(record_write.d_signal, expected_d_signal)
+        assert record.d_signal is None
+
+    def test_wrsamp_physical_only_record_second_write(self, temp_path):
+        record = wfdb.rdrecord("sample-data/100", sampto=1000)
+        record.wrsamp(write_dir=temp_path)
+
+        assert record.d_signal is None
+
+        record.p_signal[:] = 0
+        record.wrsamp(write_dir=temp_path)
+        record_write = wfdb.rdrecord(
+            os.path.join(temp_path, "100"),
+            physical=False,
+        )
+
+        expected_d_signal = np.tile(record.baseline, (record.sig_len, 1))
+        np.testing.assert_array_equal(record_write.d_signal, expected_d_signal)
+        assert record.d_signal is None
+
+    def test_wrsamp_expanded_physical_only_record(self, temp_path):
+        record = wfdb.rdrecord("sample-data/test01_00s_frame", smooth_frames=False)
+        expected_e_d_signal = wfdb.rdrecord(
+            "sample-data/test01_00s_frame",
+            smooth_frames=False,
+            physical=False,
+        ).e_d_signal
+
+        assert record.e_d_signal is None
+
+        record.wrsamp(write_dir=temp_path, expanded=True)
+        record_write = wfdb.rdrecord(
+            os.path.join(temp_path, "test01_00s_frame"),
+            smooth_frames=False,
+            physical=False,
+        )
+
+        for written, expected in zip(record_write.e_d_signal, expected_e_d_signal):
+            np.testing.assert_array_equal(written, expected)
+        assert record.e_d_signal is None
+
+    def test_2c(self, temp_path):
+        """Format 212, entire signal, physical, odd sampled record.
+
+        Target file created with:
+            rdsamp -r sample-data/100_3chan -P | cut -f 2- > record-2c
+        """
+        record = wfdb.rdrecord("sample-data/100_3chan")
+        sig_round = np.round(record.p_signal, decimals=8)
+        sig_target = np.genfromtxt("tests/target-output/record-2c")
+
+        # Test file writing
+        record.d_signal = record.adc()
+        record.wrsamp(write_dir=temp_path)
+        record_write = wfdb.rdrecord(os.path.join(temp_path, "100_3chan"))
+        record.d_signal = None
+
+        assert np.array_equal(sig_round, sig_target)
+        assert record.__eq__(record_write)
+
+    def test_2d(self):
+        """Format 310, selected duration, digital.
+
+        Target file created with:
+            rdsamp -r sample-data/3000003_0003 -f 0 -t 8.21 | cut -f 2-
+                | wrsamp -o 310derive -O 310
+            rdsamp -r 310derive -f 0.007 | cut -f 2- > record-2d
+        """
+        record = wfdb.rdrecord("sample-data/310derive", sampfrom=2, physical=False)
+        sig = record.d_signal
+        sig_target = np.genfromtxt("tests/target-output/record-2d")
+        assert np.array_equal(sig, sig_target)
+
+    def test_2e(self):
+        """Format 311, selected duration, physical.
+
+        Target file created with:
+            rdsamp -r sample-data/3000003_0003 -f 0 -t 8.21 -s 1 | cut -f 2-
+                | wrsamp -o 311derive -O 311
+            rdsamp -r 311derive -f 0.005 -t 3.91 -P | cut -f 2- > record-2e
+        """
+        sig, fields = wfdb.rdsamp("sample-data/311derive", sampfrom=1, sampto=978)
+        sig = np.round(sig, decimals=8)
+        sig_target = np.genfromtxt("tests/target-output/record-2e")
+        sig_target = sig_target.reshape([977, 1])
+        assert np.array_equal(sig, sig_target)
+
+    # --------------------- 3. Multi-dat records --------------------- #
+
+    def test_3a(self, source, temp_path):
+        """Multi-dat, entire signal, digital.
+
+        Target file created with:
+            rdsamp -r sample-data/s0010_re | cut -f 2- > record-3a
+        """
+        record = wfdb.rdrecord("sample-data/s0010_re", physical=False)
+        sig = record.d_signal
+        sig_target = np.genfromtxt("tests/target-output/record-3a")
+
+        # Compare data streaming from Physionet
+        if source == "physionet":
+            record_pn = wfdb.rdrecord(
+                "s0010_re", physical=False, pn_dir="ptbdb/patient001"
+            )
+
+        # Test file writing
+        record.wrsamp(write_dir=temp_path)
+        record_write = wfdb.rdrecord(
+            os.path.join(temp_path, "s0010_re"),
+            physical=False,
+        )
+
+        assert np.array_equal(sig, sig_target)
+        if source == "physionet":
+            assert record.__eq__(record_pn)
+        assert record.__eq__(record_write)
+
+    def test_3b(self, source):
+        """Multi-dat, selected duration, selected channels, physical.
+
+        Target file created with:
+            rdsamp -r sample-data/s0010_re -f 5 -t 38 -P -s 13 0 4 8 3 | cut -f 2-
+                > record-3b
+        """
+        sig, fields = wfdb.rdsamp(
+            "sample-data/s0010_re",
+            sampfrom=5000,
+            sampto=38000,
+            channels=[13, 0, 4, 8, 3],
+        )
+        sig_round = np.round(sig, decimals=8)
+        sig_target = np.genfromtxt("tests/target-output/record-3b")
+
+        # Compare data streaming from Physionet
+        if source == "physionet":
+            sig_pn, fields_pn = wfdb.rdsamp(
+                "s0010_re",
+                sampfrom=5000,
+                pn_dir="ptbdb/patient001",
+                sampto=38000,
+                channels=[13, 0, 4, 8, 3],
+            )
+
+        assert np.array_equal(sig_round, sig_target)
+        if source == "physionet":
+            assert np.array_equal(sig, sig_pn) and fields == fields_pn
+
+    # -------------- 4. Skew and multiple samples/frame -------------- #
+
+    def test_4a(self, temp_path):
+        """Format 16, multi-samples per frame, skew, digital.
+
+        Target file created with:
+            rdsamp -r sample-data/test01_00s_skewframe | cut -f 2- > record-4a
+        """
+        record = wfdb.rdrecord("sample-data/test01_00s_skewframe", physical=False)
+        sig = record.d_signal
+        # The WFDB library rdsamp does not return the final N samples for all
+        # channels due to the skew. The WFDB python rdsamp does return the final
+        # N samples, filling in NANs for end of skewed channels only.
+        sig = sig[:-3, :]
+
+        sig_target = np.genfromtxt("tests/target-output/record-4a")
+
+        # Test file writing. Multiple samples per frame and skew.
+        # Have to read all the samples in the record, ignoring skew
+        record_no_skew = wfdb.rdrecord(
+            "sample-data/test01_00s_skewframe",
+            physical=False,
+            smooth_frames=False,
+            ignore_skew=True,
+        )
+        record_no_skew.wrsamp(write_dir=temp_path, expanded=True)
+        # Read the written record
+        record_write = wfdb.rdrecord(
+            os.path.join(temp_path, "test01_00s_skewframe"),
+            physical=False,
+        )
+
+        assert np.array_equal(sig, sig_target)
+        assert record.__eq__(record_write)
+
+    def test_4b(self, source, temp_path):
+        """Format 12, multi-samples per frame, skew, entire signal, digital.
+
+        Target file created with:
+            rdsamp -r sample-data/03700181 | cut -f 2- > record-4b
+        """
+        record = wfdb.rdrecord("sample-data/03700181", physical=False)
+        sig = record.d_signal
+        # The WFDB library rdsamp does not return the final N samples for all
+        # channels due to the skew.
+        sig = sig[:-4, :]
+        # The WFDB python rdsamp does return the final N samples, filling in
+        # NANs for end of skewed channels only.
+        sig_target = np.genfromtxt("tests/target-output/record-4b")
+
+        # Compare data streaming from Physionet
+        if source == "physionet":
+            record_pn = wfdb.rdrecord("03700181", physical=False, pn_dir="mimicdb/037")
+
+        # Test file writing. Multiple samples per frame and skew.
+        # Have to read all the samples in the record, ignoring skew
+        record_no_skew = wfdb.rdrecord(
+            "sample-data/03700181",
+            physical=False,
+            smooth_frames=False,
+            ignore_skew=True,
+        )
+        record_no_skew.wrsamp(write_dir=temp_path, expanded=True)
+        # Read the written record
+        record_write = wfdb.rdrecord(
+            os.path.join(temp_path, "03700181"),
+            physical=False,
+        )
+
+        assert np.array_equal(sig, sig_target)
+        if source == "physionet":
+            assert record.__eq__(record_pn)
+        assert record.__eq__(record_write)
+
+    def test_4c(self, source, temp_path):
+        """Format 12, multi-samples/frame, skew, selected duration/channels, physical.
+
+        Target file created with:
+            rdsamp -r sample-data/03700181 -f 8 -t 128 -s 0 2 -P | cut -f 2- > record-4c
+        """
+        sig, fields = wfdb.rdsamp(
+            "sample-data/03700181", channels=[0, 2], sampfrom=1000, sampto=16000
+        )
+        sig_round = np.round(sig, decimals=8)
+        sig_target = np.genfromtxt("tests/target-output/record-4c")
+
+        # Compare data streaming from Physionet
+        if source == "physionet":
+            sig_pn, fields_pn = wfdb.rdsamp(
+                "03700181",
+                pn_dir="mimicdb/037",
+                channels=[0, 2],
+                sampfrom=1000,
+                sampto=16000,
+            )
+
+        # Test file writing. Multiple samples per frame and skew.
+        # Have to read all the samples in the record, ignoring skew
+        record_no_skew = wfdb.rdrecord(
+            "sample-data/03700181",
+            physical=False,
+            smooth_frames=False,
+            ignore_skew=True,
+        )
+        record_no_skew.wrsamp(write_dir=temp_path, expanded=True)
+        # Read the written record
+        writesig, writefields = wfdb.rdsamp(
+            os.path.join(temp_path, "03700181"),
+            channels=[0, 2],
+            sampfrom=1000,
+            sampto=16000,
+        )
+
+        assert np.array_equal(sig_round, sig_target)
+        if source == "physionet":
+            assert np.array_equal(sig, sig_pn) and fields == fields_pn
+        assert np.array_equal(sig, writesig) and fields == writefields
+
+    def test_4d(self):
+        """Format 16, multi-samples per frame, skew, read expanded signals
+
+        Target file created with:
+            rdsamp -r sample-data/test01_00s_skewframe -P -H | cut -f 2- > record-4d
+        """
+        record = wfdb.rdrecord("sample-data/test01_00s_skewframe", smooth_frames=False)
+
+        # Upsample the channels with lower samples/frame
+        expandsig = np.zeros((7994, 3))
+        expandsig[:, 0] = np.repeat(record.e_p_signal[0][:-3], 2)
+        expandsig[:, 1] = record.e_p_signal[1][:-6]
+        expandsig[:, 2] = np.repeat(record.e_p_signal[2][:-3], 2)
+
+        sig_round = np.round(expandsig, decimals=8)
+        sig_target = np.genfromtxt("tests/target-output/record-4d")
+
+        assert np.array_equal(sig_round, sig_target)
+
+    def test_write_smoothed(self, temp_path):
+        """Test writing a record after reading with smooth_frames"""
+        record = wfdb.rdrecord(
+            "sample-data/drive02",
+            physical=False,
+            smooth_frames=True,
+        )
+        record.wrsamp(write_dir=temp_path)
+        record2 = wfdb.rdrecord(
+            os.path.join(temp_path, "drive02"),
+            physical=False,
+        )
+        np.testing.assert_array_equal(record.d_signal, record2.d_signal)
+
+    def test_smooth_frames_invalid_sample(self, temp_path):
+        """A frame with an invalid sample is invalid after smoothing."""
+        # Two samples per frame. -32768 is the invalid sample value for fmt 16.
+        raw = np.array([2, 4, -32768, 100, 6, 8], dtype="<i2")
+        raw.tofile(os.path.join(temp_path, "invalid.dat"))
+        with open(os.path.join(temp_path, "invalid.hea"), "w") as f:
+            f.write("invalid 1 100 3\n")
+            f.write("invalid.dat 16x2 200/mV 16 0 0 0 0 sig\n")
+        record_name = os.path.join(temp_path, "invalid")
+
+        record = wfdb.rdrecord(record_name, physical=False)
+        np.testing.assert_array_equal(record.d_signal[:, 0], [3, -32768, 7])
+
+        record = wfdb.rdrecord(record_name)
+        np.testing.assert_allclose(record.p_signal[:, 0], [0.015, np.nan, 0.035])
+
+    def test_to_dataframe(self):
+        record = wfdb.rdrecord("sample-data/test01_00s")
+        df = record.to_dataframe()
+
+        assert record.sig_name == list(df.columns)
+        assert len(df) == record.sig_len
+        assert df.index[0] == pd.Timedelta(0)
+        assert df.index[-1] == pd.Timedelta(
+            seconds=1 / record.fs * (record.sig_len - 1)
+        )
+        assert np.array_equal(record.p_signal, df.values)
+
+    def test_header_with_non_utf8(self):
+        """Ignores non-utf8 characters in the header part."""
+        record = wfdb.rdrecord("sample-data/test_generator_2")
+        sig_units_target = [
+            "uV",
+            "uV",
+            "uV",
+            "uV",
+            "uV",
+            "uV",
+            "uV",
+            "uV",
+            "mV",
+            "mV",
+            "uV",
+            "mV",
+        ]
+        assert record.units.__eq__(sig_units_target)
+
+    @pytest.mark.parametrize("units", ["mV", "a.u.", "uV*s", "mmHg/s", "10^-3"])
+    def test_units_round_trip(self, units, temp_path):
+        """Units with any non-whitespace characters are read back unchanged."""
+        wfdb.wrsamp(
+            "units",
+            fs=100,
+            units=[units],
+            sig_name=["ECG II"],
+            d_signal=np.array([[1], [2]]),
+            fmt=["16"],
+            adc_gain=[1.5],
+            baseline=[0],
+            write_dir=temp_path,
+        )
+        header = wfdb.rdheader(os.path.join(temp_path, "units"))
+        assert header.units == [units]
+        assert header.sig_name == ["ECG II"]
+        assert header.adc_res == [16]
+
+    def test_wrsamp_float32_precision(self, temp_path):
+        """
+        Test that wrsamp correctly handles float32 input without overflow.
+
+        Regression test for GitHub issue where float32 physical signals
+        caused digital overflow at boundaries due to precision loss.
+        The fix converts to float64 internally during ADC parameter
+        calculation and conversion.
+
+        Uses real-world float32 data (750 samples × 12 channels) that
+        previously triggered overflow with fmt='32'.
+        """
+        # Load the test data (float32 format)
+        test_data = np.genfromtxt("sample-data/float32_test_signal.csv", delimiter=",")
+        # Ensure it's float32 (this is the key to reproducing the bug)
+        test_data = test_data.astype("float32")
+
+        # Write the record with fmt='32' (this previously caused overflow)
+        wfdb.wrsamp(
+            record_name="float32_test",
+            fs=250,
+            units=["mV"] * 12,
+            sig_name=[f"CH{i + 1}" for i in range(12)],
+            p_signal=test_data,
+            fmt=["32"] * 12,
+            write_dir=temp_path,
+        )
+
+        # Verify we can read it back without errors
+        record = wfdb.rdrecord(os.path.join(temp_path, "float32_test"), physical=False)
+
+        # Verify no digital values are out of bounds for fmt='32'
+        dmin, dmax = -2147483648, 2147483647
+        assert np.all(record.d_signal >= dmin), "Digital values below minimum"
+        assert np.all(record.d_signal <= dmax), "Digital values above maximum"
+
+        # Verify the physical signal can be read back correctly
+        record_phys = wfdb.rdrecord(os.path.join(temp_path, "float32_test"))
+
+        # Values should be close (some precision loss is expected from ADC/DAC)
+        np.testing.assert_allclose(
+            record_phys.p_signal,
+            test_data,
+            rtol=1e-4,
+            atol=1e-6,
+            err_msg="Physical signal mismatch after round-trip",
+        )
+
+
+class TestMultiRecord:
+    """Test read and write of multi segment WFDB records, including PhysioNet streaming.
+
+    Target files created using the original WFDB Software Package
+    version 10.5.24
+
+    """
+
+    def test_multi_fixed_a(self):
+        """Multi-segment, fixed layout, read entire signal.
+
+        Target file created with:
+            rdsamp -r sample-data/multi-segment/fixed1/v102s -P | cut -f 2-
+                > record-multi-fixed-a
+        """
+        record = wfdb.rdrecord("sample-data/multi-segment/fixed1/v102s")
+        sig_round = np.round(record.p_signal, decimals=8)
+        sig_target = np.genfromtxt("tests/target-output/record-multi-fixed-a")
+
+        np.testing.assert_equal(sig_round, sig_target)
+
+    def test_multi_fixed_b(self):
+        """Multi-segment, fixed layout, selected duration, samples from one segment.
+
+        Target file created with:
+            rdsamp -r sample-data/multi-segment/fixed1/v102s -t s75000 -P | cut -f 2-
+                > record-multi-fixed-b
+        """
+        record = wfdb.rdrecord("sample-data/multi-segment/fixed1/v102s", sampto=75000)
+        sig_round = np.round(record.p_signal, decimals=8)
+        sig_target = np.genfromtxt("tests/target-output/record-multi-fixed-b")
+
+        np.testing.assert_equal(sig_round, sig_target)
+
+    def test_multi_fixed_c(self):
+        """Multi-segment, fixed layout, selected duration and channels, many segments.
+
+        Target file created with:
+            rdsamp -r sample-data/multi-segment/fixed1/v102s -f s70000 -t s80000
+                -s 1 0 3 -P | cut -f 2- > record-multi-fixed-c
+        """
+        record = wfdb.rdrecord(
+            "sample-data/multi-segment/fixed1/v102s",
+            sampfrom=70000,
+            sampto=80000,
+            channels=[1, 0, 3],
+        )
+        sig_round = np.round(record.p_signal, decimals=8)
+        sig_target = np.genfromtxt("tests/target-output/record-multi-fixed-c")
+
+        # Option of selecting channels by name
+        record_named = wfdb.rdrecord(
+            "sample-data/multi-segment/fixed1/v102s",
+            sampfrom=70000,
+            sampto=80000,
+            channel_names=["V", "II", "RESP"],
+        )
+
+        np.testing.assert_equal(sig_round, sig_target)
+        assert record.__eq__(record_named)
+
+    def test_multi_fixed_d(self):
+        """Multi-segment, fixed layout, multi-frequency, selected channels
+
+        Target file created with:
+            rdsamp -r sample-data/multi-segment/041s/ -s 3 2 1 -H |
+            cut -f 2- | sed s/-32768/-2048/ |
+            gzip -9 -n > tests/target-output/record-multi-fixed-d.gz
+        """
+        record = wfdb.rdrecord(
+            "sample-data/multi-segment/041s/041s",
+            channels=[3, 2, 1],
+            physical=False,
+            smooth_frames=False,
+        )
+
+        # Convert expanded to uniform array (high-resolution)
+        sig = np.zeros((record.sig_len * 4, record.n_sig), dtype=int)
+        for i, s in enumerate(record.e_d_signal):
+            sig[:, i] = np.repeat(s, len(sig[:, i]) // len(s))
+
+        sig_target = np.genfromtxt("tests/target-output/record-multi-fixed-d.gz")
+
+        record_named = wfdb.rdrecord(
+            "sample-data/multi-segment/041s/041s",
+            channel_names=["ABP", "V", "I"],
+            physical=False,
+            smooth_frames=False,
+        )
+
+        # Sample values should match the output of rdsamp -H
+        np.testing.assert_array_equal(sig, sig_target)
+        # channel_names=[...] should give the same result as channels=[...]
+        assert record == record_named
+
+    def test_multi_variable_a(self):
+        """Multi-segment, variable layout, selected duration, samples from one segment.
+
+        Target file created with:
+            rdsamp -r sample-data/multi-segment/s00001/s00001-2896-10-10-00-31
+                -f s14428365 -t s14428375 -P | cut -f 2- > record-multi-variable-a
+        """
+        record = wfdb.rdrecord(
+            "sample-data/multi-segment/s00001/s00001-2896-10-10-00-31",
+            sampfrom=14428365,
+            sampto=14428375,
+        )
+        sig_round = np.round(record.p_signal, decimals=8)
+        sig_target = np.genfromtxt("tests/target-output/record-multi-variable-a")
+
+        np.testing.assert_equal(sig_round, sig_target)
+
+    def test_multi_variable_b(self):
+        """Multi-segment, variable layout, selected duration, several segments.
+
+        Target file created with:
+            rdsamp -r sample-data/multi-segment/s00001/s00001-2896-10-10-00-31
+                -f s14428364 -t s14428375 -P | cut -f 2- > record-multi-variable-b
+        """
+        record = wfdb.rdrecord(
+            "sample-data/multi-segment/s00001/s00001-2896-10-10-00-31",
+            sampfrom=14428364,
+            sampto=14428375,
+        )
+        sig_round = np.round(record.p_signal, decimals=8)
+        sig_target = np.genfromtxt("tests/target-output/record-multi-variable-b")
+
+        np.testing.assert_equal(sig_round, sig_target)
+
+    def test_multi_variable_c(self):
+        """Multi-segment, variable layout, entire signal, physical, expanded
+
+        The reference signal creation cannot be made with rdsamp
+        directly because the WFDB c package (10.5.24) applies the single
+        adcgain and baseline values from the layout specification
+        header, which is undesired in multi-segment signals with
+        different adcgain/baseline values across segments.
+
+        Target file created with:
+        ```
+        for i in {01..18}
+        do
+            rdsamp -r sample-data/multi-segment/s25047/3234460_00$i -P | cut -f 2-
+                >> record-multi-variable-c
+        done
+        ```
+
+        Entire signal has 543240 samples.
+        - 25740 length empty segment.
+        - First 16 segments have same 2 channels, length 420000
+        - Last 2 segments have same 3 channels, length 97500
+
+        """
+        record = wfdb.rdrecord(
+            "sample-data/multi-segment/s25047/s25047-2704-05-04-10-44",
+            smooth_frames=False,
+        )
+
+        # convert expanded to uniform array and round to 8 digits
+        sig_round = np.zeros((record.sig_len, record.n_sig))
+        for i in range(record.n_sig):
+            sig_round[:, i] = np.round(record.e_p_signal[i], decimals=8)
+
+        sig_target_a = np.full((25740, 3), np.nan)
+        sig_target_b = np.concatenate(
+            (
+                np.genfromtxt(
+                    "tests/target-output/record-multi-variable-c",
+                    skip_footer=97500,
+                ),
+                np.full((420000, 1), np.nan),
+            ),
+            axis=1,
+        )
+        sig_target_c = np.genfromtxt(
+            "tests/target-output/record-multi-variable-c", skip_header=420000
+        )
+        sig_target = np.concatenate((sig_target_a, sig_target_b, sig_target_c))
+
+        np.testing.assert_equal(sig_round, sig_target)
+
+    def test_multi_variable_d(self, source):
+        """Multi-segment, variable layout, selected duration and channels, digital.
+
+        There are two channels: PLETH, and II. Their fmt, adc_gain, and baseline do not
+        change between the segments.
+
+        Target file created with:
+            rdsamp -r sample-data/multi-segment/p000878/p000878-2137-10-26-16-57
+                -f s3550 -t s7500 -s 0 1 | cut -f 2- | perl -p -e 's/-32768/  -128/g;'
+                > record-multi-variable-d
+
+        """
+        record = wfdb.rdrecord(
+            "sample-data/multi-segment/p000878/p000878-2137-10-26-16-57",
+            sampfrom=3550,
+            sampto=7500,
+            channels=[0, 1],
+            physical=False,
+        )
+        sig = record.d_signal
+
+        # Compare data streaming from Physionet
+        if source == "physionet":
+            record_pn = wfdb.rdrecord(
+                "p000878-2137-10-26-16-57",
+                pn_dir="mimic3wdb/matched/p00/p000878/",
+                sampfrom=3550,
+                sampto=7500,
+                channels=[0, 1],
+                physical=False,
+            )
+        sig_target = np.genfromtxt("tests/target-output/record-multi-variable-d")
+
+        # Option of selecting channels by name
+        record_named = wfdb.rdrecord(
+            "sample-data/multi-segment/p000878/p000878-2137-10-26-16-57",
+            sampfrom=3550,
+            sampto=7500,
+            physical=False,
+            channel_names=["PLETH", "II"],
+        )
+
+        np.testing.assert_equal(sig, sig_target)
+        if source == "physionet":
+            assert record.__eq__(record_pn)
+        assert record.__eq__(record_named)
+
+    def test_multi_variable_write(self, tmp_path):
+        """Write a variable layout multi-segment record and read it back.
+
+        This includes its layout header and empty segments.
+        """
+        record_name = "sample-data/multi-segment/s25047/s25047-2704-05-04-10-44"
+        multi_record = wfdb.rdrecord(record_name, m2s=False, physical=False)
+
+        multi_record.wrsamp(write_dir=str(tmp_path))
+        layout = wfdb.rdheader(str(tmp_path / "3234460_layout"))
+        record = wfdb.rdrecord(str(tmp_path / "s25047-2704-05-04-10-44"))
+
+        expected = wfdb.rdrecord(record_name)
+        assert layout.sig_len == 0
+        assert layout.file_name == ["~"] * 3
+        assert layout.fmt == ["0"] * 3
+        assert record.sig_name == expected.sig_name
+        np.testing.assert_array_equal(record.p_signal, expected.p_signal)
+
+    def test_multi_variable_write_new_record(self, tmp_path):
+        """Write a variable layout record created from scratch, with null signals."""
+        layout = wfdb.Record(
+            record_name="v_layout",
+            n_sig=1,
+            fs=100,
+            sig_len=0,
+            sig_name=["II"],
+            units=["mV"],
+            fmt=["0"],
+            file_name=["~"],
+            adc_gain=[200.0],
+            baseline=[0],
+            init_value=[0],
+            checksum=[0],
+        )
+        segment = wfdb.Record(
+            record_name="v_0001",
+            n_sig=1,
+            fs=100,
+            sig_len=5,
+            sig_name=["II"],
+            units=["mV"],
+            fmt=["16"],
+            file_name=["v_0001.dat"],
+            adc_gain=[200.0],
+            baseline=[0],
+            init_value=[0],
+            checksum=[10],
+            d_signal=np.arange(5).reshape(-1, 1),
+        )
+        for record in (layout, segment):
+            record.set_defaults()
+        multi_record = wfdb.MultiRecord(
+            record_name="v",
+            n_sig=1,
+            fs=100,
+            sig_len=5,
+            seg_name=["v_layout", "v_0001"],
+            seg_len=[0, 5],
+            segments=[layout, segment],
+            layout="variable",
+            sig_name=["II"],
+        )
+
+        multi_record.wrsamp(write_dir=str(tmp_path))
+
+        # The WFDB library's default resolution for a format without one
+        assert wfdb.rdheader(str(tmp_path / "v_layout")).adc_res == [12]
+        record = wfdb.rdrecord(str(tmp_path / "v"), physical=False)
+        np.testing.assert_array_equal(record.d_signal[:, 0], np.arange(5))
+
+    def test_write_mixed_null_signals(self, tmp_path):
+        """A record with both null signals and signals with samples is rejected."""
+        record = wfdb.Record(
+            record_name="mix",
+            n_sig=2,
+            fs=100,
+            sig_len=5,
+            sig_name=["I", "II"],
+            units=["mV", "mV"],
+            fmt=["16", "0"],
+            file_name=["mix.dat", "~"],
+            adc_gain=[200.0, 200.0],
+            baseline=[0, 0],
+            init_value=[0, 0],
+            checksum=[0, 0],
+            d_signal=np.zeros((5, 2), dtype="int16"),
+        )
+        record.set_defaults()
+
+        with pytest.raises(ValueError, match="null signals"):
+            record.wrsamp(write_dir=str(tmp_path))
+        assert os.listdir(tmp_path) == []
+
+
+class TestTimeConversion:
+    """Test cases for time conversion"""
+
+    def test_single(self):
+        """Time conversion for a single-segment record
+
+        This checks the get_frame_number, get_elapsed_time, and
+        get_absolute_time methods for a Record object.  The example record
+        has no base date defined, so attempting to convert to/from absolute
+        time should raise an exception.
+
+        """
+        header = wfdb.rdheader("sample-data/test01_00s")
+
+        # these time values should be equivalent
+        n = 123 * header.fs
+        t = datetime.timedelta(seconds=123)
+        assert header.get_frame_number(n) == n
+        assert header.get_frame_number(t) == n
+        assert header.get_elapsed_time(n) == t
+        assert header.get_elapsed_time(t) == t
+
+        # record test01_00s has no base date, so absolute time conversions
+        # should fail
+        assert header.base_date is None
+        d = datetime.datetime(2001, 1, 1, 12, 0, 0)
+        with pytest.raises(ValueError):
+            header.get_frame_number(d)
+        with pytest.raises(ValueError):
+            header.get_absolute_time(n)
+        with pytest.raises(ValueError):
+            header.get_absolute_time(t)
+
+    def test_multisegment_with_date(self):
+        """Time conversion for a multi-segment record with base date
+
+        This checks the get_frame_number, get_elapsed_time, and
+        get_absolute_time methods for a MultiRecord object.  The example
+        record has a base date, so we can convert timestamps between all
+        three of the supported representations.
+
+        """
+        header = wfdb.rdheader(
+            "sample-data/multi-segment/p000878/p000878-2137-10-26-16-57"
+        )
+
+        # these time values should be equivalent
+        n = 123 * header.fs
+        t = datetime.timedelta(seconds=123)
+        d = t + header.base_datetime
+        assert header.get_frame_number(n) == n
+        assert header.get_frame_number(t) == n
+        assert header.get_frame_number(d) == n
+        assert header.get_elapsed_time(n) == t
+        assert header.get_elapsed_time(t) == t
+        assert header.get_elapsed_time(d) == t
+        assert header.get_absolute_time(n) == d
+        assert header.get_absolute_time(t) == d
+        assert header.get_absolute_time(d) == d
+
+
+class TestSignal:
+    """For lower level signal tests"""
+
+    def test_infer_sig_len(self):
+        """Infer the signal length of a record without the sig_len header.
+
+        Read two headers. The records should be the same.
+        """
+
+        record = wfdb.rdrecord("sample-data/drive02")
+        record_2 = wfdb.rdrecord("sample-data/drive02-no-len")
+        record_2.record_name = record.record_name
+
+        assert record_2.__eq__(record)
+
+        record = wfdb.rdrecord("sample-data/a103l")
+        record_2 = wfdb.rdrecord("sample-data/a103l-no-len")
+        record_2.record_name = record.record_name
+
+        assert record_2.__eq__(record)
+
+    def test_physical_conversion(self, temp_path):
+        n_sig = 3
+        adc_gain = [1.0, 1234.567, 765.4321]
+        baseline = [10, 20, -30]
+        d_signal = np.repeat(np.arange(-100, 100), 3).reshape(-1, 3)
+        d_signal[5:10, :] = [-32768, -2048, -128]
+        e_d_signal = list(d_signal.transpose())
+        fmt = ["16", "212", "80"]
+
+        # Test adding or subtracting a small offset (0.01 ADU) to check
+        # that we correctly round to the nearest integer
+        for offset in (0, -0.01, 0.01):
+            p_signal = (d_signal + offset - baseline) / adc_gain
+            p_signal[5:10, :] = np.nan
+            e_p_signal = list(p_signal.transpose())
+
+            # Test converting p_signal to d_signal
+
+            record = wfdb.Record(
+                p_signal=p_signal.copy(),
+                adc_gain=adc_gain,
+                baseline=baseline,
+                fmt=fmt,
+            )
+
+            d_signal_converted = record.adc(expanded=False, inplace=False)
+            np.testing.assert_array_equal(d_signal_converted, d_signal)
+
+            record.adc(expanded=False, inplace=True)
+            np.testing.assert_array_equal(record.d_signal, d_signal)
+
+            # Test converting e_p_signal to e_d_signal
+
+            record = wfdb.Record(
+                e_p_signal=[s.copy() for s in e_p_signal],
+                adc_gain=adc_gain,
+                baseline=baseline,
+                fmt=fmt,
+            )
+
+            e_d_signal_converted = record.adc(expanded=True, inplace=False)
+            assert len(e_d_signal_converted) == n_sig
+            for x, y in zip(e_d_signal_converted, e_d_signal):
+                np.testing.assert_array_equal(x, y)
+
+            record.adc(expanded=True, inplace=True)
+            assert len(record.e_d_signal) == n_sig
+            for x, y in zip(record.e_d_signal, e_d_signal):
+                np.testing.assert_array_equal(x, y)
+
+            # Test automatic conversion using wfdb.wrsamp()
+
+            wfdb.wrsamp(
+                "test_physical_conversion",
+                fs=1000,
+                sig_name=["X", "Y", "Z"],
+                units=["mV", "mV", "mV"],
+                p_signal=p_signal,
+                adc_gain=adc_gain,
+                baseline=baseline,
+                fmt=fmt,
+                write_dir=temp_path,
+            )
+            record = wfdb.rdrecord(
+                os.path.join(temp_path, "test_physical_conversion"),
+                physical=False,
+            )
+            np.testing.assert_array_equal(record.d_signal, d_signal)
+
+            record = wfdb.rdrecord(
+                os.path.join(temp_path, "test_physical_conversion"),
+                physical=True,
+            )
+            for ch, gain in enumerate(adc_gain):
+                np.testing.assert_allclose(
+                    record.p_signal[:, ch],
+                    p_signal[:, ch],
+                    rtol=0.0000001,
+                    atol=(0.05 / gain),
+                )
+
+    def test_adc_gain_max_boundary(self, temp_path):
+        """Exercise the MAX_I32 clamp path.
+
+        Use a tiny range around a huge negative signal so the computed baseline would
+        exceed MAX_I32. Verify we hit that branch and that a write/read round-trip
+        preserves the physical signal within expected quantization and the formula
+        produces the expected result.
+        """
+        # Tiny range around a large negative value forces baseline > MAX_I32
+        base_value = -1e10
+        p_signal = np.array(
+            [
+                [base_value],
+                [base_value + 0.5],
+                [base_value + 1.0],
+                [base_value + 1.5],
+            ]
+        )
+
+        # Write the record
+        wfdb.wrsamp(
+            "test_negative_signal",
+            fs=250,
+            sig_name=["ECG"],
+            units=["mV"],
+            p_signal=p_signal,
+            fmt=["16"],
+            write_dir=temp_path,
+        )
+
+        # Read it back
+        record = wfdb.rdrecord(
+            os.path.join(temp_path, "test_negative_signal"),
+            physical=True,
+        )
+
+        # Round-trip physical signal should match within quantization tolerance
+        np.testing.assert_allclose(
+            record.p_signal,
+            p_signal,
+            rtol=1e-4,
+            atol=1e4,  # Larger atol for large magnitude values
+        )
+
+        # Verify baseline was clamped to MAX_I32
+        assert record.baseline[0] == 2147483647  # MAX_I32
+
+        # Confirm the formula is correct
+        expected_gain = (2147483647 - (-32768)) / abs(base_value)
+        np.testing.assert_allclose(record.adc_gain[0], expected_gain, rtol=1e-3)
+
+    def test_adc_gain_min_boundary(self, temp_path):
+        """Exercise the MIN_I32 clamp path.
+
+        Use a tiny range around a huge positive signal so the computed baseline would
+        drop below MIN_I32. Verify we hit that branch and that a write/read round-trip
+        preserves the physical signal within expected quantization and the formula
+        produces the expected result.
+        """
+        # Tiny range around a large positive value forces baseline < MIN_I32
+        base_value = 1e10
+        p_signal = np.array(
+            [
+                [base_value],
+                [base_value + 0.5],
+                [base_value + 1.0],
+                [base_value + 1.5],
+            ]
+        )
+
+        # Write the record
+        wfdb.wrsamp(
+            "test_positive_signal",
+            fs=250,
+            sig_name=["ECG"],
+            units=["mV"],
+            p_signal=p_signal,
+            fmt=["16"],
+            write_dir=temp_path,
+        )
+
+        # Read it back
+        record = wfdb.rdrecord(
+            os.path.join(temp_path, "test_positive_signal"),
+            physical=True,
+        )
+
+        # Round-trip physical signal should match within quantization tolerance
+        np.testing.assert_allclose(
+            record.p_signal,
+            p_signal,
+            rtol=1e-4,
+            atol=1e4,
+        )
+
+        # Verify baseline was clamped to MIN_I32
+        assert record.baseline[0] == -2147483648
+
+        # Confirm the formula is correct
+        expected_gain = (32767 - (-2147483648)) / (base_value + 1.5)
+        np.testing.assert_allclose(record.adc_gain[0], expected_gain, rtol=1e-3)
+
+    @pytest.mark.filterwarnings("error::RuntimeWarning")
+    def test_all_nan_channel(self, temp_path):
+        """Write and read back a signal with a channel that is entirely NaN."""
+        p_signal = np.array(
+            [
+                [np.nan, 0.5],
+                [np.nan, -0.25],
+                [np.nan, np.nan],
+            ]
+        )
+
+        record = wfdb.Record(p_signal=p_signal, fmt=["16", "16"])
+        adc_gain, baseline = record.calc_adc_params()
+        assert adc_gain[0] == 1
+        assert baseline[0] == 1
+
+        record = wfdb.Record(e_p_signal=list(p_signal.transpose()), fmt=["16", "16"])
+        assert record.calc_adc_params() == (adc_gain, baseline)
+
+        wfdb.wrsamp(
+            "test_all_nan_channel",
+            fs=250,
+            sig_name=["I", "II"],
+            units=["mV", "mV"],
+            p_signal=p_signal,
+            fmt=["16", "16"],
+            write_dir=temp_path,
+        )
+        record = wfdb.rdrecord(os.path.join(temp_path, "test_all_nan_channel"))
+        assert np.isnan(record.p_signal[:, 0]).all()
+        np.testing.assert_allclose(
+            record.p_signal[:, 1], p_signal[:, 1], atol=1 / record.adc_gain[1]
+        )
+
+
+class TestSigCohesion:
+    """Tests for the digital range check in check_sig_cohesion."""
+
+    @staticmethod
+    def _record(d_signal=None, e_d_signal=None, samps_per_frame=(1, 1)):
+        sig_len = len(d_signal) if d_signal is not None else len(e_d_signal[1])
+        return wfdb.Record(
+            record_name="x",
+            n_sig=2,
+            fs=100,
+            sig_len=sig_len,
+            fmt=["16", "80"],
+            adc_gain=[200, 200],
+            baseline=[0, 0],
+            units=["mV", "mV"],
+            sig_name=["a", "b"],
+            samps_per_frame=list(samps_per_frame),
+            d_signal=d_signal,
+            e_d_signal=e_d_signal,
+        )
+
+    @pytest.mark.parametrize("value", [-32769, 32768])
+    def test_out_of_range(self, value):
+        """A value outside the format's range is rejected, even at the end."""
+        d_signal = np.zeros((5, 2), dtype="int64")
+        d_signal[-1, 0] = value
+        record = self._record(d_signal=d_signal)
+
+        with pytest.raises(IndexError, match="Channel 0 contain values outside"):
+            record.check_sig_cohesion([], expanded=False)
+
+    @pytest.mark.parametrize("value", [-129, 128])
+    def test_out_of_range_expanded(self, value):
+        """Expanded signals are checked channel by channel."""
+        e_d_signal = [np.zeros(10, dtype="int64"), np.zeros(5, dtype="int64")]
+        e_d_signal[1][-1] = value
+        record = self._record(e_d_signal=e_d_signal, samps_per_frame=(2, 1))
+
+        with pytest.raises(IndexError, match="Channel 1 contain values outside"):
+            record.check_sig_cohesion([], expanded=True)
+
+    def test_limits_allowed(self):
+        """The smallest and largest values of each format are allowed."""
+        d_signal = np.array([[-32768, -128], [32767, 127]])
+        self._record(d_signal=d_signal).check_sig_cohesion([], expanded=False)
+
+        e_d_signal = [np.array([-32768, 0, 0, 32767]), np.array([-128, 127])]
+        record = self._record(e_d_signal=e_d_signal, samps_per_frame=(2, 1))
+        record.check_sig_cohesion([], expanded=True)
+
+
+class TestDownload:
+    # Test that we can download records with no "dat" file
+    # Regression test for https://github.com/MIT-LCP/wfdb-python/issues/118
+    @pytest.mark.network
+    def test_dl_database_no_dat_file(self, temp_path):
+        wfdb.dl_database("afdb", temp_path, ["00735"])
+
+    # Test that we can download records that *do* have a "dat" file.
+    @pytest.mark.network
+    def test_dl_database_with_dat_file(self, temp_path):
+        wfdb.dl_database("afdb", temp_path, ["04015"])
+
+
+def _pack_reference(fmt, samples):
+    """Pack samples (in file order) into bytes, one sample at a time."""
+    samples = [int(v) for v in samples]
+    if fmt == "80":
+        return bytes(v + 128 for v in samples)
+    if fmt == "212":
+        out = bytearray()
+        for i in range(0, len(samples), 2):
+            a = samples[i] & 0xFFF
+            b = samples[i + 1] & 0xFFF if i + 1 < len(samples) else 0
+            out += bytes([a & 0xFF, (a >> 8) | ((b >> 8) << 4), b & 0xFF])
+        if len(samples) % 2:
+            out = out[:-1]
+        return bytes(out)
+    size = {"16": 2, "24": 3, "32": 4}[fmt]
+    return b"".join(v.to_bytes(size, "little", signed=True) for v in samples)
+
+
+class TestWrDatFile:
+    """Tests for the bytes written by wr_dat_file."""
+
+    @pytest.mark.parametrize("fmt", ["80", "212", "16", "24", "32"])
+    @pytest.mark.parametrize("sig_len", [1, 2, 7])
+    def test_bytes(self, fmt, sig_len, tmp_path):
+        """Each format is written little-endian, sample by sample."""
+        dmin, dmax = wfdb.io._signal._digi_bounds(fmt)
+        rng = np.random.default_rng(0)
+        d_signal = rng.integers(dmin, dmax + 1, size=(sig_len, 3))
+        d_signal[0] = [dmin, dmax, -1]
+        original = d_signal.copy()
+
+        wfdb.io._signal.wr_dat_file(
+            "x.dat", fmt, d_signal, byte_offset=0, write_dir=str(tmp_path)
+        )
+
+        written = (tmp_path / "x.dat").read_bytes()
+        assert written == _pack_reference(fmt, d_signal.reshape(-1))
+        np.testing.assert_array_equal(d_signal, original)
+
+    @pytest.mark.parametrize("fmt", ["80", "212", "16", "24", "32"])
+    def test_non_contiguous_input(self, fmt, tmp_path):
+        """Fortran-ordered and sliced signals are written in sample order."""
+        dmin, dmax = wfdb.io._signal._digi_bounds(fmt)
+        rng = np.random.default_rng(1)
+        full = rng.integers(dmin, dmax + 1, size=(9, 4))
+        d_signal = np.asfortranarray(full[:, ::2])
+
+        wfdb.io._signal.wr_dat_file(
+            "x.dat", fmt, d_signal, byte_offset=0, write_dir=str(tmp_path)
+        )
+
+        written = (tmp_path / "x.dat").read_bytes()
+        assert written == _pack_reference(fmt, full[:, ::2].reshape(-1))
+
+    @pytest.mark.parametrize("fmt", ["80", "212", "16", "24", "32"])
+    def test_expanded(self, fmt, tmp_path):
+        """Multi-frequency signals are written frame by frame."""
+        e_d_signal = [np.array([1, -2, 3, -4]), np.array([5, -6])]
+
+        wfdb.io._signal.wr_dat_file(
+            "x.dat",
+            fmt,
+            None,
+            byte_offset=0,
+            expanded=True,
+            e_d_signal=e_d_signal,
+            samps_per_frame=[2, 1],
+            write_dir=str(tmp_path),
+        )
+
+        written = (tmp_path / "x.dat").read_bytes()
+        assert written == _pack_reference(fmt, [1, -2, 5, 3, -4, -6])
